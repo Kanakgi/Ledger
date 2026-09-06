@@ -53,13 +53,11 @@ local function RetryAsync(Scheduler: Engine.Scheduler, Callback: () -> ...any, L
 			Result = table.pack(pcall(Callback))
 		end
 
-		if not Result[1] then
-			warn(`Ledger: a call failed on attempt {Attempt} of {Allowed} and will be tried again: {Result[2]}`)
-		end
-
 		if Result[1] or Attempt >= Allowed or Tagged.Is(Result[2]) then
 			return table.unpack(Result, 1, Result.n)
 		end
+
+		warn(`Ledger: a call failed on attempt {Attempt} of {Allowed} and will be tried again: {Result[2]}`)
 
 		local Backoff = Constant + Exponent ^ Attempt + Scheduler.Roll() * Jitter
 		if Backoff > 0 then

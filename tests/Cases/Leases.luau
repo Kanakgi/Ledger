@@ -393,16 +393,16 @@ Cases.Case("a followed key another server holds is skipped without counting as a
 	T:Ok("that pass read the key", One.Store.Wrapper.Spent > Before)
 end)
 
-Cases.Case("a claim that cannot reach the map holds a background reap to one shard, and an operator still gets the whole walk", function(T: Case)
+Cases.Case("a background reap walks one shard a pass, and an operator still gets the whole walk", function(T: Case)
 	local One = T:Bank("nodeA")
 	Funded(One, "downA", "downB")
 	Faulted(One, Fault.Updates())
 
 	local Listed = Listing(One)
-	One.Store:ReapMarkers(true)
+	One.Store:ReapMarkers(1)
 	local First = Listed.Count
 	local Onward = One.Store.Resume
-	One.Store:ReapMarkers(true)
+	One.Store:ReapMarkers(1)
 	local Second = Listed.Count - First
 	One.Store:ReapMarkers()
 
@@ -447,7 +447,7 @@ Cases.Case("one server with the map down still reaps every shard, over as many p
 			Seen[At] = true
 			Walked += 1
 		end
-		One.Store:ReapMarkers(true)
+		One.Store:ReapMarkers(1)
 	end
 
 	T:Is("shards it started a pass on, every one of them", Walked, Transactions.SHARDS)

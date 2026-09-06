@@ -66,9 +66,10 @@ function Store.Repair(self: Store, Key: string): (boolean, boolean)
 	return Recovery.Transfers(self:Records(), self:Format(), Key, Held)
 end
 
-function Store.ReapMarkers(self: Store, Bounded: boolean?): number
+function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 	local Name = self.Wrapper.Name
 	local Reads = Enum.DataStoreRequestType.GetAsync
+	local Lists = Enum.DataStoreRequestType.ListAsync
 
 	local Ok, Reaped, Next = pcall(function(): (number, number)
 		return Tx.Reap(self.TxWrapper, function(Store: string): Log.Log?
@@ -81,9 +82,10 @@ function Store.ReapMarkers(self: Store, Bounded: boolean?): number
 		end, {
 			Node = self.Node,
 			From = self.Resume,
-			Bounded = Bounded,
+			Shards = Shards,
+			Limit = Limit,
 			Afford = function(): boolean
-				return self:TxAffords(Reads, Transactions.REAP_FLOOR) and self:Affords(Reads, Transactions.REAP_FLOOR)
+				return self:TxAffords(Reads, Transactions.REAP_FLOOR) and self:Affords(Reads, Transactions.REAP_FLOOR) and self:TxAffords(Lists, Transactions.REAP_LISTS)
 			end,
 			Claim = function(Shard: number): Types.Claimed
 				return self:Claim(Mark.Cached({ "reap", self.TxWrapper.Name, tostring(Shard) }), Windows.PASS_LEASE)

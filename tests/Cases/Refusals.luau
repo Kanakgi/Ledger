@@ -629,8 +629,6 @@ Cases.Case("erasing a key with money set aside in more than one field names what
 end)
 
 Cases.Case("the reap works its way round every store when it cannot afford them all at once", function(T: Case)
-	local Allowed = 0
-
 	local Names: { string } = {}
 	local Found = 0
 	local Tried = 0
@@ -651,11 +649,7 @@ Cases.Case("the reap works its way round every store when it cannot afford them 
 			Store:Marker(Named, { Status = "Aborted", Total = 1, Gen = "one", Adopted = {} })
 		end
 		Store:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
-			if Kind ~= Enum.DataStoreRequestType.ListAsync then
-				return 1000
-			end
-			Allowed -= 1
-			return if Allowed >= 0 then 1000 else 0
+			return if Kind == Enum.DataStoreRequestType.ListAsync then Transactions.REAP_LISTS * Transactions.REAP_SHARE else 1000
 		end)
 		Stores[Index] = Store
 	end
@@ -674,19 +668,24 @@ Cases.Case("the reap works its way round every store when it cannot afford them 
 
 	T:Is("every store starts with husks to reap", Left(), 4)
 
-	for _ = 1, 10 do
-		Allowed = 2
+	for _ = 1, #Stores do
 		T:Sweep()
 	end
-	local AfterOne = Left()
-
-	for _ = 1, 10 do
-		Allowed = 2
-		T:Sweep()
+	local Round: { string } = {}
+	for Index, Store in Stores do
+		Round[Index] = tostring(Transactions.SHARDS - #Store:Marks())
 	end
 
-	T:Is("a budget for two only reaps two", AfterOne, 2)
-	T:Is("the second pass reaches the two it skipped", Left(), 0)
+	for _ = #Stores + 1, #Stores * Transactions.SHARDS do
+		T:Sweep()
+	end
+	local Standing = 0
+	for _, Store in Stores do
+		Standing += #Store:Marks()
+	end
+
+	T:Is("one pass per store takes one shard from each", table.concat(Round, ","), "1,1,1,1")
+	T:Is("a pass per shard per store takes every husk", Standing, 0)
 end)
 
 Cases.Case("the sweep settles a leg nobody else will", function(T: Case)

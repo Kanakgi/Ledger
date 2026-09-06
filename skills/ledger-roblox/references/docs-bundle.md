@@ -8,7 +8,7 @@
   <Tab value="Wally">
     ```toml
     [dependencies]
-    Ledger = "xoifaii/ledger@5.1.0"
+    Ledger = "xoifaii/ledger@5.1.1"
     ```
   </Tab>
 
@@ -534,6 +534,17 @@ you don't have to plan around.
 
 `+` is new, `-` is gone, `!` is something you have to know about before you upgrade.
 
+## 5.1.1 [#511]
+
+```diff
+- The assert that refused a Once on Confirm. A named confirm replayed after the key has forgotten its op answers Refused
+- A reap pass that listed all 32 shards at once and ran a small server out of list budget. The sweep sizes a reap pass from the list budget now, one shard on a small server
+```
+
+### Upgrading [#upgrading]
+
+Install the new version.
+
 ## 5.1.0 [#510]
 
 A key that every server needs is read once for the whole fleet. The measure was 5,000 servers
@@ -555,7 +566,7 @@ the shared copy it was 4 reads, at one MemoryStore unit per server per minute.
 ! A copy shares the MemoryStore quota with holds, totals and leases, at one unit a tick per server
 ```
 
-### Upgrading [#upgrading]
+### Upgrading [#upgrading-1]
 
 Install the new version.
 
@@ -574,7 +585,7 @@ Install the new version.
 ! A commit replayed after its op was folded into the snapshot answers Unresolved, the same as Edit
 ```
 
-### Upgrading [#upgrading-1]
+### Upgrading [#upgrading-2]
 
 Install the new version. The stored record does not change, and your code does not change unless
 it reuses a booking Id from one purchase to the next. Give each purchase its own Id, the order id
@@ -621,7 +632,7 @@ A purchase is 3 datastore calls and 6 MemoryStore units, and it stays there from
 ! 5.0 does not read a reservation a 4.x server made. Drain them before you upgrade
 ```
 
-### Upgrading [#upgrading-2]
+### Upgrading [#upgrading-3]
 
 Install the new version. The stored record does not change, and a store that never called `Reserve`
 needs nothing else.

@@ -21,6 +21,9 @@ local Measure = require("../../src/Encode/Measure")
 local TxStamp = require("../../src/Record/TxStamp")
 local Compact = require("../../src/Record/Compact")
 local Recovery = require("../../src/Protocol/Recovery")
+local Cleanup = require("../../src/Protocol/Tx/Cleanup")
+local Transactions = require("../../src/Core/Constants/Transactions")
+local Mark = require("../../src/Encode/Mark")
 local TableUtil = require("../../src/Util/TableUtil")
 local Sweep = require("../../src/Store/Registry").Sweep()
 
@@ -264,6 +267,149 @@ Cases.Case("reaping is capped per pass and finishes over several", function(T: C
 	end
 
 	T:Is("later passes finish the rest", #Store:Marks(), 0)
+end)
+
+local function ListLane(Bank: Fixture, Lists: () -> number)
+	Bank:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
+		if Kind == Enum.DataStoreRequestType.ListAsync then
+			return math.max(0, Transactions.REAP_LISTS - Lists())
+		end
+		return 100
+	end)
+end
+
+Cases.Case("a reap pass stops listing when the list budget runs out", function(T: Case)
+	local Bank = T:Bank()
+	local Tx = Bank.Store.TxWrapper
+	local Before = Tx.Spent
+	ListLane(Bank, function(): number
+		return Tx.Spent - Before
+	end)
+
+	local Reaped = Bank.Store:ReapMarkers()
+
+	T:Is("markers it took off an empty store", Reaped, 0)
+	T:Is("lists it made before the lane ran short", Tx.Spent - Before, 1)
+	T:Is("the shard it hands back, the first it could not afford", Bank.Store.Resume, (Cleanup.Mine(Bank.Store.Node) + 1) % Transactions.SHARDS)
+end)
+
+Cases.Case("a list that fails ends the reap pass and hands the same shard back", function(T: Case)
+	local Bank = T:Bank()
+	local Tx = Bank.Store.TxWrapper
+	local Before = Tx.Spent
+	local Spec = Bank:MarkerFault(Fault.On("ListKeysAsync"):Only(1))
+
+	Bank.Store:ReapMarkers()
+
+	T:Is("the fault fired", Spec.Fired, 1)
+	T:Is("attempts the list made, one and no retry", Tx.Spent - Before, 1)
+	T:Is("the shard it hands back, the one it could not list", Bank.Store.Resume, Cleanup.Mine(Bank.Store.Node))
+end)
+
+Cases.Case("a reap pass asks the list budget again before it turns a page", function(T: Case)
+	local Bank = T:Bank()
+	local Shard = Cleanup.Mine(Bank.Store.Node)
+	local Oldest = T:Now() - Windows.REAP
+	for Index = 1, Transactions.REAP_PAGE + 1 do
+		Bank.DirectMarks:UpdateAsync(Cleanup.Named(Shard, Oldest + Index * Windows.BUCKET, 1), function(): string
+			return Mark.Pack({})
+		end)
+	end
+
+	local Lists = 0
+	Bank:MarkerFault(Fault.On("ListKeysAsync"):Meddle(function()
+		Lists += 1
+	end))
+	ListLane(Bank, function(): number
+		return Lists
+	end)
+
+	Bank.Store:ReapMarkers()
+
+	T:Is("lists it made, the first page and not the second", Lists, 1)
+	T:Is("the shard it hands back, the one it was still on", Bank.Store.Resume, Shard)
+end)
+
+local function Lanes(Bank: Fixture, Lists: number, Reads: number)
+	Bank:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
+		return if Kind == Enum.DataStoreRequestType.ListAsync then Lists else Reads
+	end)
+end
+
+local function Listing(Bank: Fixture): () -> number
+	local Lists = 0
+	Bank:MarkerFault(Fault.On("ListKeysAsync"):Meddle(function()
+		Lists += 1
+	end))
+	return function(): number
+		return Lists
+	end
+end
+
+local function Husks(Store: Fixture, Shard: number, Count: number)
+	local Made, Tried = 0, 0
+	while Made < Count do
+		Tried += 1
+		local Name = `husk{Tried}`
+		if Cleanup.Shard(Name) == Shard then
+			Store:Marker(Name, { Status = "Aborted", Total = 1, Gen = "one", Adopted = {} })
+			Made += 1
+		end
+	end
+end
+
+Cases.Case("the sweep reaps one store a pass and takes the stores in turn", function(T: Case)
+	local Bank, Vault = T:Bank(), T:Vault()
+	local Counts = { Listing(Bank), Listing(Vault) }
+	Lanes(Bank, Transactions.REAP_LISTS, 1000)
+	Lanes(Vault, Transactions.REAP_LISTS, 1000)
+
+	T:Sweep()
+	local First = `{Counts[1]()},{Counts[2]()}`
+	T:Sweep()
+
+	T:Is("lists in the first pass, one shard of the first store", First, "1,0")
+	T:Is("lists after the second pass, one shard of each", `{Counts[1]()},{Counts[2]()}`, "1,1")
+end)
+
+Cases.Case("the sweep sizes the shards a reap pass walks from the list lane", function(T: Case)
+	local Bank = T:Bank()
+	local Lists = Listing(Bank)
+	local Lane = Transactions.REAP_LISTS * Transactions.REAP_SHARE * 5
+
+	Lanes(Bank, Lane, 1000)
+	T:Sweep()
+	local Rich = Lists()
+
+	Lanes(Bank, Transactions.REAP_LISTS, 1000)
+	T:Sweep()
+
+	T:Is("shards walked with a lane of five passes' worth, a quarter of it", Rich, 5)
+	T:Is("shards walked with a lane just above the floor", Lists() - Rich, 1)
+end)
+
+Cases.Case("the sweep sizes what a reap pass may take from the read lane", function(T: Case)
+	local Bank = T:Bank()
+	for Index = 1, 40 do
+		Bank:Marker(`take{Index}`, { Status = "Aborted", Total = 1, Gen = "one", Adopted = {} })
+	end
+	T:Advance(Windows.REAP + 60)
+	Lanes(Bank, 1000, Transactions.REAP_SHARE * 10)
+
+	T:Sweep()
+
+	T:Is("husks left after a pass allowed a quarter of forty reads", #Bank:Marks(), 30)
+end)
+
+Cases.Case("a pass that walks one shard takes looks up to its whole room", function(T: Case)
+	local Bank = T:Bank()
+	Husks(Bank, Cleanup.Mine(Bank.Store.Node), 40)
+	T:Advance(Windows.REAP + 60)
+	Lanes(Bank, Transactions.REAP_LISTS, 1000)
+
+	T:Sweep()
+
+	T:Is("husks left on the one shard after one pass", #Bank:Marks(), 0)
 end)
 
 Cases.Case("an op nested deeper than the cap is refused", function(T: Case)

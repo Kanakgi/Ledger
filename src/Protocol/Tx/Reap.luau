@@ -42,7 +42,7 @@ export type Reaping = {
 	From: number?,
 	Horizon: number?,
 	Limit: number?,
-	Bounded: boolean?,
+	Shards: number?,
 	Afford: (() -> boolean)?,
 	Claim: ((Shard: number) -> Claimed)?,
 }
@@ -54,11 +54,14 @@ type Walk = {
 	Older: number,
 	Grace: number,
 	Room: number,
+	Looks: number,
 	Reaped: number,
 }
 
 local ABSENT: Claimed = { Outcome = Transactions.ABSENT }
 table.freeze(ABSENT)
+
+local ONCE: DataStoreWrapper.Limits = { Attempts = 1 }
 
 local function Spent(Record: Record, Txid: string, Gen: string?, Born: number): boolean
 	for _, Op in Record.Ops do
@@ -207,18 +210,18 @@ local function Full(Walk: Walk, Looks: number): boolean
 	return Walk.Reaped >= Walk.Room or Looks <= 0
 end
 
-local function Listed(Walk: Walk, Shard: number): boolean
-	local Ok, Pages = Walk.TxStore:ListKeysAsync(Cleanup.Prefix(Shard), Transactions.REAP_PAGE, nil)
+local function Listed(Walk: Walk, Shard: number, Afford: (() -> boolean)?): (boolean, boolean)
+	local Ok, Pages = Walk.TxStore:ListKeysAsync(Cleanup.Prefix(Shard), Transactions.REAP_PAGE, nil, nil, ONCE)
 	if not Ok then
-		return false
+		return false, true
 	end
 
-	local Looks = Transactions.REAP_LOOKS
+	local Looks = Walk.Looks
 	local Book = Pages :: DataStoreKeyPages
 	while true do
 		for _, Entry in Book:GetCurrentPage() do
 			if Full(Walk, Looks) then
-				return true
+				return true, false
 			end
 
 			local Named = (Entry :: any).KeyName
@@ -232,8 +235,14 @@ local function Listed(Walk: Walk, Shard: number): boolean
 			Looks -= Looked
 		end
 
-		if Book.IsFinished or not pcall(Book.AdvanceToNextPageAsync, Book) then
-			return false
+		if Book.IsFinished then
+			return false, false
+		end
+		if Afford ~= nil and not Afford() then
+			return false, true
+		end
+		if not pcall(Book.AdvanceToNextPageAsync, Book) then
+			return false, true
 		end
 	end
 end
@@ -248,29 +257,36 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		Older = Older,
 		Grace = math.min(Older, Windows.REAP_GRACE),
 		Room = Asked.Limit or Transactions.REAP_LIMIT,
+		Looks = 0,
 		Reaped = 0,
 	}
 	local Afford = Asked.Afford
 	local Claim = Asked.Claim
 	local Base = if type(Asked.From) == "number" then Asked.From % Transactions.SHARDS else Cleanup.Mine(Asked.Node)
 
+	local Count = math.min(Asked.Shards or Transactions.SHARDS, Transactions.SHARDS)
+	Walk.Looks = math.max(Transactions.REAP_LOOKS, Walk.Room // Count)
+
 	local Step = 0
-	while Step < Transactions.SHARDS do
+	while Step < Count do
 		if Walk.Reaped >= Walk.Room or (Afford ~= nil and not Afford()) then
 			break
 		end
 
 		local Shard = (Base + Step) % Transactions.SHARDS
 		local Lease: Claimed = if Claim ~= nil then Claim(Shard) else ABSENT
-		local More = Lease.Outcome ~= Transactions.HELD and Listed(Walk, Shard)
-		if Lease.Outcome == Transactions.TAKEN and More then
+		local More, Stopped = false, false
+		if Lease.Outcome ~= Transactions.HELD then
+			More, Stopped = Listed(Walk, Shard, Afford)
+		end
+		if Lease.Outcome == Transactions.TAKEN and (More or Stopped) then
 			Lease.Release()
+		end
+		if Stopped then
+			return Walk.Reaped, Shard
 		end
 
 		Step += 1
-		if Asked.Bounded and Lease.Outcome == Transactions.UNKNOWN then
-			break
-		end
 	end
 
 	return Walk.Reaped, (Base + Step) % Transactions.SHARDS

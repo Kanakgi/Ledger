@@ -231,7 +231,6 @@ function Case.Open(Name: string): Case
 
 	local Walker = Registry.Sweep()
 	Walker:Stop()
-	Walker.Passes = 0
 	Walker.Resume = 1
 
 	local Present: any = game:GetService("Players")

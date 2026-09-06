@@ -25,11 +25,13 @@ type ThreadQueue = ThreadQueue.ThreadQueue
 type Handler = KeyedRetryQueue.Handler
 type Transform = (any, DataStoreKeyInfo) -> ...any
 
+export type Limits = KeyedRetryQueue.Limits
+
 type DataStoreWrapperImpl = {
 	__index: DataStoreWrapperImpl,
 	New: (Name: string, Scheduler: Engine.Scheduler, Hook: Engine.Hook, Attempts: number?, Constant: number?, Exponent: number?) -> DataStoreWrapper,
 	GetStore: (self: DataStoreWrapper) -> Engine.Store,
-	AttemptAsync: (self: DataStoreWrapper, Key: string, Operation: (Store: Engine.Store) -> ...any, Handler: Handler?) -> ...any,
+	AttemptAsync: (self: DataStoreWrapper, Key: string, Operation: (Store: Engine.Store) -> ...any, Handler: Handler?, Limits: Limits?) -> ...any,
 	GetAsync: (self: DataStoreWrapper, Key: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
 	UpdateAsync: (self: DataStoreWrapper, Key: string, Transform: Transform, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
 	RemoveAsync: (self: DataStoreWrapper, Key: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
@@ -43,7 +45,7 @@ type DataStoreWrapperImpl = {
 		Handler: Handler?
 	) -> (boolean, any),
 	GetVersionAsync: (self: DataStoreWrapper, Key: string, Version: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
-	ListKeysAsync: (self: DataStoreWrapper, Prefix: string?, PageSize: number?, Cursor: string?, Handler: Handler?) -> (boolean, any),
+	ListKeysAsync: (self: DataStoreWrapper, Prefix: string?, PageSize: number?, Cursor: string?, Handler: Handler?, Limits: Limits?) -> (boolean, any),
 	Budget: (self: DataStoreWrapper, Kind: Enum.DataStoreRequestType) -> number,
 	SkipAllQueuesToLastEnqueued: (self: DataStoreWrapper) -> (),
 }
@@ -89,12 +91,12 @@ function DataStoreWrapper.GetStore(self: DataStoreWrapper): Engine.Store
 	return self.Hook.Open(self.Name)
 end
 
-function DataStoreWrapper.AttemptAsync(self: DataStoreWrapper, Key: string, Operation: (Store: Engine.Store) -> ...any, Handler: Handler?): ...any
+function DataStoreWrapper.AttemptAsync(self: DataStoreWrapper, Key: string, Operation: (Store: Engine.Store) -> ...any, Handler: Handler?, Limits: Limits?): ...any
 	assert(type(Key) == "string", "a datastore call was queued under something that is not a key")
 	return KeyedRetryQueue.Run(self, Key, function()
 		self.Spent += 1
 		return Operation(self:GetStore())
-	end, Handler)
+	end, Handler, Limits)
 end
 
 function DataStoreWrapper.GetAsync(self: DataStoreWrapper, Key: string, Handler: Handler?): (boolean, any, DataStoreKeyInfo?)
@@ -137,10 +139,10 @@ function DataStoreWrapper.GetVersionAsync(self: DataStoreWrapper, Key: string, V
 	end, Handler)
 end
 
-function DataStoreWrapper.ListKeysAsync(self: DataStoreWrapper, Prefix: string?, PageSize: number?, Cursor: string?, Handler: Handler?): (boolean, any)
+function DataStoreWrapper.ListKeysAsync(self: DataStoreWrapper, Prefix: string?, PageSize: number?, Cursor: string?, Handler: Handler?, Limits: Limits?): (boolean, any)
 	return self:AttemptAsync(WHOLE_STORE, function(Store: Engine.Store)
 		return Store:ListKeysAsync(Prefix or WHOLE_STORE, PageSize, Cursor, true)
-	end, Handler)
+	end, Handler, Limits)
 end
 
 function DataStoreWrapper.Budget(self: DataStoreWrapper, Kind: Enum.DataStoreRequestType): number

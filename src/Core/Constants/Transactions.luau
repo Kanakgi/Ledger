@@ -51,6 +51,8 @@ return table.freeze({
 	REAP_LOOKS = 16,
 	REAP_PAGE = 50,
 	REAP_FLOOR = 18,
+	REAP_LISTS = 2,
+	REAP_SHARE = 4,
 
 	LEASE_MAP = "Ledger_Lease",
 	LEASE_BUDGET = 8,

@@ -19,6 +19,7 @@
 --]=]
 
 local MemoryStore = require("./MemoryStore")
+local Transactions = require("./Transactions")
 
 local DAY = 86400
 local HOUR = 3600
@@ -68,7 +69,10 @@ assert(
 	"a reservation is held past its hold so a slow hand over cannot race the recovery that gives its units back, and that wait is added to the hold a game asked for, so it has to be the smaller of the two"
 )
 assert(POLL < TX, "a session polling for a parked leg has to look more than once before it gives up on the transaction")
-assert(SWEEP < REAP, "the sweep has to run more often than the window it reaps markers on, or a marker would wait on the pass rather than on its horizon")
+assert(
+	SWEEP * Transactions.SHARDS <= REAP,
+	"the sweep reaps one shard a pass, so every shard of a store has to come round inside the window an undecided marker waits, or a marker would wait on the pass rather than on its horizon"
+)
 assert(
 	BUCKET < REAP_GRACE,
 	"a cleanup list key has to stop being written to before a reaper may judge it, or a name added late lands on a key the reaper has already emptied and its marker is left with nothing pointing at it"

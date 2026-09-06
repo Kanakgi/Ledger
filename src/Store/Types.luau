@@ -57,8 +57,9 @@ export type Swept = {
 	read Mark: (Key: string) -> string,
 	read Affords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	read TxAffords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
+	read TxBudget: (Kind: Enum.DataStoreRequestType) -> number,
 	read Repair: (Key: string) -> (boolean, boolean),
-	read ReapMarkers: (Bounded: boolean) -> number,
+	read ReapMarkers: (Shards: number?, Limit: number?) -> number,
 	read Claim: (Key: string, Ttl: number) -> Claimed,
 }
 
@@ -81,7 +82,6 @@ export type Sweeper = setmetatable<{
 	Entries: { [string]: Stranded },
 	Stores: { Swept },
 	Count: number,
-	Passes: number,
 	Resume: number,
 	Cursor: string?,
 	Epoch: number,
@@ -238,7 +238,7 @@ export type StoreImpl<D> = {
 	Leased: (self: Store<D>, Targets: { { Name: string, Key: string } }) -> ({ () -> () }, boolean),
 	Claim: (self: Store<D>, Key: string, Ttl: number) -> Claimed,
 	Repair: (self: Store<D>, Key: string) -> (boolean, boolean),
-	ReapMarkers: (self: Store<D>, Bounded: boolean?) -> number,
+	ReapMarkers: (self: Store<D>, Shards: number?, Limit: number?) -> number,
 	Buried: (self: Store<D>, Key: string, Replaced: Record) -> (),
 
 	Copy: (self: Store<D>, Key: string) -> Copy,

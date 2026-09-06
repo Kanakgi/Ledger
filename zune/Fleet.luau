@@ -220,16 +220,15 @@ Bench("reap", function(T: Suite.Case)
 	T:Advance(Windows.REAP + 60)
 
 	local Before, Units = Calls(Servers), T.Service.Units
-	local Batch = math.ceil(SERVERS / MINUTES)
-	for Minute = 1, MINUTES do
-		for Index = (Minute - 1) * Batch + 1, math.min(Minute * Batch, SERVERS) do
-			Servers[Index].Store:ReapMarkers(true)
+	for _ = 1, MINUTES do
+		for Index = 1, SERVERS do
+			Servers[Index].Store:ReapMarkers(1)
 		end
 		T:Advance(Windows.SWEEP)
 	end
 
 	local Spent = Calls(Servers) - Before
-	Row(`reaping, every server once over {MINUTES} minutes`, Spent, T.Service.Units - Units, string.format("%.1f calls per server", Spent / SERVERS))
+	Row(`reaping, one shard a server a minute over {MINUTES} minutes`, Spent, T.Service.Units - Units, string.format("%.1f calls per server", Spent / SERVERS))
 end)
 
 Bench("sweep", function(T: Suite.Case)

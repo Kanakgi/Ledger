@@ -22,6 +22,8 @@ type ThreadQueue = ThreadQueue.ThreadQueue
 
 export type Handler = (() -> ...any) -> (boolean, ...any)
 
+export type Limits = RetryAsync.Limits
+
 export type State = {
 	Scheduler: Engine.Scheduler,
 	Attempts: number?,
@@ -32,17 +34,17 @@ export type State = {
 	Queues: { [string]: ThreadQueue },
 }
 
-local function RunUnqueued(State: State, Operation: () -> ...any, Handler: Handler?): ...any
-	return RetryAsync(State.Scheduler, Operation, State, Handler)
+local function RunUnqueued(State: State, Operation: () -> ...any, Handler: Handler?, Limits: Limits?): ...any
+	return RetryAsync(State.Scheduler, Operation, Limits or State, Handler)
 end
 
-local function Run(State: State, Key: string, Operation: () -> ...any, Handler: Handler?): ...any
+local function Run(State: State, Key: string, Operation: () -> ...any, Handler: Handler?, Limits: Limits?): ...any
 	if State.Direct then
-		return RunUnqueued(State, Operation, Handler)
+		return RunUnqueued(State, Operation, Handler, Limits)
 	end
 
 	return ThreadQueue.Keyed(State.Queues, State.Scheduler, Key, function()
-		return RunUnqueued(State, Operation, Handler)
+		return RunUnqueued(State, Operation, Handler, Limits)
 	end)
 end
 

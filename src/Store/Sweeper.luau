@@ -33,22 +33,20 @@ export type Sweeper = Types.Sweeper
 local SWEEP_LIMIT = 256
 local SWEEP_TRIES = 5
 local MIN_SWEEP_BUDGET = 8
-local MIN_LIST_BUDGET = 2
-local REAP_EVERY = 10
 
 local function Affordable(Held: Swept): boolean
 	return Held.Affords(Enum.DataStoreRequestType.GetAsync, MIN_SWEEP_BUDGET) and Held.Affords(Enum.DataStoreRequestType.UpdateAsync, MIN_SWEEP_BUDGET)
 end
 
 local function Listable(Held: Swept): boolean
-	return Held.TxAffords(Enum.DataStoreRequestType.ListAsync, MIN_LIST_BUDGET)
+	return Held.TxAffords(Enum.DataStoreRequestType.ListAsync, Transactions.REAP_LISTS)
 end
 
 local Sweeper = {} :: SweeperImpl
 Sweeper.__index = Sweeper
 
 function Sweeper.New(): Sweeper
-	local Built: Sweeper = setmetatable({ Entries = {}, Stores = {}, Count = 0, Passes = 0, Resume = 1, Cursor = nil, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
+	local Built: Sweeper = setmetatable({ Entries = {}, Stores = {}, Count = 0, Resume = 1, Cursor = nil, Epoch = 0, Ticker = nil :: any }, Sweeper) :: any
 	Built.Ticker = SetInterval(Clock.Held(), Windows.SWEEP, function()
 		Built:Pass()
 	end)
@@ -98,11 +96,6 @@ function Sweeper.Forget(self: Sweeper, Held: Swept)
 end
 
 function Sweeper.Reap(self: Sweeper, Mine: number?)
-	self.Passes += 1
-	if self.Passes % REAP_EVERY ~= 0 then
-		return
-	end
-
 	local Total = #self.Stores
 	if Total == 0 then
 		return
@@ -110,21 +103,23 @@ function Sweeper.Reap(self: Sweeper, Mine: number?)
 	if self.Resume > Total then
 		self.Resume = 1
 	end
-
-	for Step = 0, Total - 1 do
-		local At = ((self.Resume + Step - 1) % Total) + 1
-		if Mine ~= nil and self.Epoch ~= Mine then
-			self.Resume = At
-			return
-		end
-
-		local Held = self.Stores[At]
-		if not Affordable(Held) or not Listable(Held) then
-			self.Resume = At
-			return
-		end
-		Held.ReapMarkers(true)
+	if Mine ~= nil and self.Epoch ~= Mine then
+		return
 	end
+
+	local At = self.Resume
+	local Held = self.Stores[At]
+	if not Affordable(Held) or not Listable(Held) then
+		return
+	end
+
+	local Lists = Held.TxBudget(Enum.DataStoreRequestType.ListAsync)
+	local Reads = Held.TxBudget(Enum.DataStoreRequestType.GetAsync)
+	local Shards = math.clamp(Lists // (Transactions.REAP_LISTS * Transactions.REAP_SHARE), 1, Transactions.SHARDS)
+	local Limit = math.clamp(Reads // Transactions.REAP_SHARE, 1, Transactions.REAP_LIMIT)
+
+	Held.ReapMarkers(Shards, Limit)
+	self.Resume = At + 1
 end
 
 function Sweeper.Pass(self: Sweeper)
