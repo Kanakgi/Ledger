@@ -121,13 +121,27 @@ This is a signal to stop writing and look, not to retry harder.
 
 ## A total reads wrong or stale
 
-1. `Total` answers a cached sum for up to about a minute and a quarter across the fleet, and this
-   server's own bumps show at once. That is not a bug, it is the trade that took a polled pot from
-   192 reads a minute per server to one MemoryStore unit.
+1. `Total` answers a cached sum for 60 to 75 seconds across the fleet, or 90 if the server refilling
+   it dies, and this server's own bumps show at once. That is not a bug, it is the trade that took a
+   polled pot from 192 reads a minute per server to one MemoryStore unit.
 2. `MaxAge` controls it. Zero reads every time.
 3. It answers what was added, never what the keys hold, so the `Default` never counts toward it.
 4. One unreadable shard makes the whole call answer nothing with a reason, rather than a number that
    is quietly short.
+
+## A followed key does not update on another server
+
+1. **How long has it been?** A write shows on the writer at once. It reaches another server after
+   the shared copy is refilled, 60 to 75 seconds, and that server ticks. The tick is every 30
+   seconds while the key changes and every 4 minutes while it does not. Five minutes is not a bug.
+2. **Nudge it.** Send the key over `MessagingService` from `Store:Stale()` and have the receiver call
+   `Peek(Key, 0)` after a random wait of a few seconds. One server reads the record and the copy is
+   fresh for the rest. `guides/entity-stores#following-a-key`.
+3. **Read the warning.** A state over 32 KB, or one holding a buffer, gets no copy, and every server
+   reads the record on its own tick. A store with no MemoryStore does the same. Ledger says so once a
+   window either way, naming the key.
+4. **Check for `Behind`.** A newer build wrote the copy. It clears when the deploy finishes.
+5. **Is the store string keyed?** `Follow` and `Peek` with a `MaxAge` throw on a player store.
 
 ## Reserve answers Unresolved
 

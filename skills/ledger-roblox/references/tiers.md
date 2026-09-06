@@ -38,6 +38,14 @@ calls, which cost two request units each.
 every time. A pot polled every five seconds with `MaxAge = 0` costs twelve times what the default
 costs, for the same answer.
 
+`Peek` with a `MaxAge` and `Follow` (`Store/Api/Follow.luau`) read the copy of the key the fleet
+shares, one `Get` for one unit. When the copy is stale, after 60 to 75 seconds, one server claims
+the refill, reads the record and writes the copy back, five units and one request. The others
+answer the copy they hold. `Follow` does that on a timer, every 30 seconds while the key changes
+and every 4 minutes while it does not, and the timer stops with the last listener. A `MaxAge` of
+zero reads the record through the same claim. The refill reads the record the way `Peek` does, so
+it enrols the key in the sweep when it finds work.
+
 `Holds` is a single `Get` and writes nothing.
 
 ## Writes to the record
@@ -78,9 +86,11 @@ MemoryStore drives without one.
   one.
 - **`Erase`** hands over what the key owes first, then buries it. The tombstone turns away anything
   sent to the key for 8 days and a write does not clear it. A second `Erase` after that window calls
-  `RemoveAsync` and takes the record off. It also removes the key's holds from MemoryStore.
+  `RemoveAsync` and takes the record off. It also removes the key's holds and its shared copy from
+  MemoryStore.
 - **`Destroy`** saves every live session on that store, frees the name, and makes every later call
-  throw. **`CloseAll`** does it for every store and stops the sweep.
+  throw. It ends every follow on the store, and the sweep forgets the store's keys. **`CloseAll`**
+  does it for every store and stops the sweep.
 
 ## Reading this against the source
 
@@ -88,7 +98,7 @@ Every row above can be checked in one grep inside the library:
 
 ```
 grep -rn "self:Watch\|:WatchHeld\|Sweep:Add" src
-grep -rn "self.Tallies\|self.Leases\|self.Bookings" src
+grep -rn "self.Tallies\|self.Leases\|self.Bookings\|self.Copier" src
 ```
 
 The first prints every place a key is handed to the sweep. The second prints every place MemoryStore

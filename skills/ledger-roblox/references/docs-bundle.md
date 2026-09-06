@@ -8,7 +8,7 @@
   <Tab value="Wally">
     ```toml
     [dependencies]
-    Ledger = "xoifaii/ledger@5.0.0"
+    Ledger = "xoifaii/ledger@5.1.0"
     ```
   </Tab>
 
@@ -32,6 +32,18 @@
 Ledger installs where both sides can see it, so you can keep it next to shared type definitions. It
 still only runs on the server, because only the server can reach a datastore, and requiring it from a
 client says so and stops there.
+
+### If you code with an AI agent [#if-you-code-with-an-ai-agent]
+
+Ledger ships an agent skill. It tells the agent which call to use safely, which calls are safe to run
+on a live player's key, and what a bug that quietly duplicates money looks like in your code.
+
+```
+npx skills add XoifaiI/Ledger
+```
+
+It installs for Claude Code, Codex, Cursor, Copilot, Gemini and the rest in one go, and it carries a
+copy of these docs, so it still answers when the agent can't reach the web.
 
 ## Build a store [#build-a-store]
 
@@ -434,17 +446,19 @@ them. Correctness never suffers from contention, only throughput.
 
 Measured on the mock, for the path where nothing fails.
 
-| operation              | datastore requests                                                     |
-| ---------------------- | ---------------------------------------------------------------------- |
-| `Peek`, `Edit`, `Bump` | 1                                                                      |
-| `Reserve`, `Release`   | 0, and two MemoryStore units, plus one read on the first hold of a key |
-| `Confirm`              | 1, and two MemoryStore units                                           |
-| `Holds`                | 0, and one MemoryStore unit                                            |
-| `Transfer`             | 3                                                                      |
-| `Tx`, 2 legs           | 8                                                                      |
-| `Tx`, 4 legs           | 12                                                                     |
-| `Total`, cached        | 0, and one MemoryStore unit                                            |
-| `Total`, cold          | 16, and three units                                                    |
+| operation                                  | datastore requests                                                     |
+| ------------------------------------------ | ---------------------------------------------------------------------- |
+| `Peek`, `Edit`, `Bump`                     | 1                                                                      |
+| `Peek` with a `MaxAge`, from the copy      | 0, and one MemoryStore unit                                            |
+| `Peek` with a `MaxAge`, refilling the copy | 1, and five units, on one server a minute                              |
+| `Reserve`, `Release`                       | 0, and two MemoryStore units, plus one read on the first hold of a key |
+| `Confirm`                                  | 1, and two MemoryStore units                                           |
+| `Holds`                                    | 0, and one MemoryStore unit                                            |
+| `Transfer`                                 | 3                                                                      |
+| `Tx`, 2 legs                               | 8                                                                      |
+| `Tx`, 4 legs                               | 12                                                                     |
+| `Total`, cached                            | 0, and one MemoryStore unit                                            |
+| `Total`, cold                              | 16, and five units, on one server a minute                             |
 
 A transaction costs 4 requests on its marker whatever the leg count, which is why the two leg case is
 the one worth avoiding. A limit that lives on one key is a reservation, not a transaction. See
@@ -471,12 +485,16 @@ checkout that stays open longer calls `Reserve` again under the same Id. A hold 
 so it costs the key nothing and runs out on its own. One key holds 256 at once.
 
 Holds share the experience's MemoryStore quota, `1000 + 120 × concurrent users` request units a
-minute, with totals, transaction leases and idle sessions. A `Reserve` or `Release` is two units, a
-`Confirm` two, a `Holds` one.
+minute, with totals, transaction leases and followed keys. A `Reserve` or `Release` is two units. A
+`Confirm` is two. A `Holds` is one. A followed key is one unit a tick on each server that follows
+it. The one server that refills the shared copy spends five units and one request each minute. The
+copy has to fit one MemoryStore item, 32 KB of your fields. A bigger key is read from the record by
+every server. Ledger says so once a window.
 
-A total is spread over 16 keys. `Total` answers from a sum cached in MemoryStore while that sum is
-under a minute old, for one request unit, and reads all 16 keys when it is not, so a cold total costs
-16 requests on the one server that refills it. `Bump` costs one request and no units.
+A total is spread over 16 keys. `Total` answers a sum cached in MemoryStore for one request unit.
+After 60 to 75 seconds that sum is stale. One server then reads all 16 keys and caches the sum
+again. A cold total costs that server 16 requests. Each server has its own limit between 60 and
+75 seconds. One server refills the sum, not all of them. `Bump` costs one request and no units.
 
 See [Reservations and totals](/docs/guides/reservations).
 
@@ -514,6 +532,52 @@ you don't have to plan around.
 
 
 `+` is new, `-` is gone, `!` is something you have to know about before you upgrade.
+
+## 5.1.0 [#510]
+
+A key that every server needs is read once for the whole fleet. The measure was 5,000 servers
+that read one 4 KB settings key every 30 seconds. Without the shared copy that was 100,000
+datastore reads in ten minutes. That is 40 MB a minute on one key, against a lane of 25 MB. With
+the shared copy it was 4 reads, at one MemoryStore unit per server per minute.
+
+```diff
++ Store:Follow(Key) streams the state on one key, kept fresh from one shared copy
++ Peek takes a MaxAge and answers a copy, this server's own first and the shared one next
++ A Peek with a MaxAge of 0 reads the record through a claim. A fleet told to refresh reads it once
++ A copy that a newer build folded answers Behind on an older build, the same as its record
++ A total is a copy like a followed key. A fleet's first look at a cold pot reads the shards once
++ Each server has its own stale limit between 60 and 75 seconds. One server refills a copy, not all of them
+
+! Follow and Peek with a MaxAge work on string keyed stores only. The copy carries your fields only, never _Received or _Held
+! A cold total costs five MemoryStore units. The two more are so the fleet can read it once
+! A followed state has to fit one MemoryStore item, 32 KB. A bigger key is read from the record
+! A copy shares the MemoryStore quota with holds, totals and leases, at one unit a tick per server
+```
+
+### Upgrading [#upgrading]
+
+Install the new version.
+
+## 5.0.1 [#501]
+
+```diff
++ A confirm under a name an earlier confirm already spent answers Spent
++ Reserve under a held name for another amount or field answers Spent
+
+- A key that filled up while a transaction was parked on it staying full after the transaction settled
+- An older server's compaction dropping a bump or a transfer on a field only a newer Default defines
+- Minor log improvements
+
+! A booking Id is for one purchase. Reserving under it again once the hold has gone still works, and a confirm under it then answers Spent
+! Confirm reads the hold first, so a purchase is 3 datastore calls and 7 MemoryStore units
+! A commit replayed after its op was folded into the snapshot answers Unresolved, the same as Edit
+```
+
+### Upgrading [#upgrading-1]
+
+Install the new version. The stored record does not change, and your code does not change unless
+it reuses a booking Id from one purchase to the next. Give each purchase its own Id, the order id
+is the usual one.
 
 ## 5.0.0 [#500]
 
@@ -556,7 +620,7 @@ A purchase is 3 datastore calls and 6 MemoryStore units, and it stays there from
 ! 5.0 does not read a reservation a 4.x server made. Drain them before you upgrade
 ```
 
-### Upgrading [#upgrading]
+### Upgrading [#upgrading-2]
 
 Install the new version. The stored record does not change, and a store that never called `Reserve`
 needs nothing else.
@@ -582,277 +646,6 @@ checkout still works, refused by your reducer when the stock has gone.
 Do not roll 5.0 out alongside 4.x servers. The two fold a reservation differently, so for the length
 of the deploy the same key reads one way on an old server and another on a new one. Take the servers
 down, or accept that anything reserved in that window is voided.
-
-## 4.5.0 [#450]
-
-```diff
-+ Clearer warnings
-+ Erase answers Unresolved when it cannot read the key first, and leaves it alone
-
-- An edit that only held if a parked transaction did not go through being written, and the key never compacting again once it did
-- A session that outlived the 8 days of an erase mark closing on its next save, and losing what it had applied since
-- A session filled to its byte cap during a datastore outage never saving again once the datastore came back
-- A transaction with a buffer in a leg answering Spent when asked again with the same buffer
-- A player who rejoined inside the 8 days after an erase being called a session on another server
-- A migration that copies the state being told it had dropped Ledger's own fields
-- Erase burying a key it could not read, and the money set aside on it with it
-
-! An Edit that only holds if a parked transaction does not go through answers Unresolved and is not written
-! An Apply in the same position waits until the transaction settles, then lands or is turned away
-! A reducer or migration that writes a field starting with an underscore is warned about as your mistake, not as a Ledger bug
-```
-
-### Upgrading [#upgrading-1]
-
-Install the new version. The stored record does not change.
-
-**Edits beside a parked transaction.** An `Edit` that holds on the key as it is, but not once the parked
-transaction goes through, used to be written and answer `Unresolved`. It still answers
-[`Unresolved`](/docs/concepts/reasons), and nothing is written. Ask again once the transaction settles.
-An `Apply` in the same position stays queued until then. Nothing changes for an op that holds either way.
-
-**Erase.** When the key cannot be read before the hand over, `Erase` answers `Unresolved` and the key
-stays as it was. Ask again. It used to bury the key and warn that the money was gone.
-
-## 4.4.1 [#441]
-
-```diff
-+ Buffers in the fake datastore stored with zstd rather than base64
-+ Transactions check for any pending ids
-```
-
-### Upgrading [#upgrading-2]
-
-Install the new version. The stored record does not change. Your code does not change.
-
-## 4.4.0 [#440]
-
-```diff
-+ Mock takes Players, CCU and Throttled
-+ Reset says when the key it reset still cannot compact, and what will clear it
-
-- A migration that rebuilt the state dropping the money set aside, the applied names, the reservations and the tally
-- Reserve answering true under a name whose units had already gone, without setting anything aside
-- A transaction leg landing on a key that was erased, with nothing said about it
-- An older build being able to rewrite the op list of a record it cannot read
-- One store's transaction clean up list skipping the keys another store in the same game had filled
-
-! Reserve answers Spent under a name whose units have gone, where it used to answer true
-! A transaction leg is turned away from a key that was erased, for the 8 days its tombstone lasts
-```
-
-### Upgrading [#upgrading-3]
-
-**Migrations.** A migration is handed the stored state, and that carries Ledger's own fields next to
-yours. One that copies the state and changes what it needs has always kept them:
-
-```luau
-local Next = table.clone(State)
-Next.Gold = State.Coins or 0
-Next.Coins = nil
-return Next
-```
-
-**Reserve.** Asking again under a name that still holds units answers `true` and sets nothing aside
-twice, the same as before. Under a name whose units have gone, confirmed, released or given back, it
-answers [`Spent`](/docs/concepts/reasons) where it used to answer `true` while setting nothing aside.
-Nothing could be spent twice either way, since `Confirm` refuses a reservation that isn't there. The
-answer was wrong.
-
-A reservation name is a handle on live units rather than a receipt. To know later whether a purchase
-happened, put a [`Once`](/docs/concepts/once) name on the op that grants the item and ask `DidApply`.
-
-**Transactions and erased keys.** A leg on a key that was erased used to land, so money arrived on a
-key the erase was meant to empty.
-
-## 4.3.1 [#431]
-
-```diff
-+ Runcontext check for client using Ledger
-
-! Ledger installs to the shared realm now, so a Wally dependency moves out of server-dependencies
-! Ledger.Op<Ops> and Ledger.OpOf are read only, so a reducer that writes to its op stops the build
-```
-
-### Upgrading [#upgrading-4]
-
-**Wally.** Ledger is a shared package now, so move it across:
-
-```diff
-- [server-dependencies]
-+ [dependencies]
-  Ledger = "xoifaii/ledger@4.3.1"
-```
-
-**Ops are read only.** On a typed store the op your reducer is handed no longer takes a write.
-
-## 4.3.0 [#430]
-
-```diff
-+ Ledger.NewTyped, which takes a map of the op kinds your store writes and what each one carries
-+ Apply, Commit and Edit on a typed store checked against that map, kind and fields together
-+ Ledger.Op<Ops>, the op as one of your kinds, so a reducer narrows on Op.Kind and reads fields with no cast
-+ The Field argument to Reserve, Bump and Total held against your state's number fields on a typed store
-+ A typed reducer held to giving back your state or nil
-+ Ledger.Record, Ledger.Future and Ledger.Observer exported
-+ Erase passes on money the key was still sending, and units a Reserve set aside for another key, before the key goes
-+ Marker clean up starts on every server, not only one that has already had a write to retry
-
-- A reservation kept rather than given back, after sitting 30 days without a Grant having started on it
-- A delivery landing after the window it can still be given back in
-- A reducer that copies the whole state being told it had written Ledger's own bookkeeping
-- A reducer being able to put applied names on a key that had none
-
-! Reserve answers Refused once a key holds 256 reservations at once
-! ClearDelivered throws on a store that names no Balance field, the way RecoverTransfers already did
-! Nothing else changes unless you ask for it. A store built with Ledger.New behaves as it did
-```
-
-### Upgrading [#upgrading-5]
-
-There's nothing to do. `Ledger.New` takes the same options, hands back the same store, and every call
-site on it reads the same. Naming your ops is something you do when you want it.
-
-To opt one store in, write what each kind carries and build it with `NewTyped`:
-
-```luau
-export type Ops = {
-	Buy: { Item: string },
-	AddGold: { Amount: number },
-}
-
-local Store = Ledger.NewTyped<<Profile, Ops>>({
-	Name = "PlayerData",
-	Default = { Gold = 100, Items = {} },
-	Reducer = Reducer,
-})
-```
-
-The call shape doesn't change, so the calls you already have keep working:
-
-```luau
-Session:Apply("Buy", { Item = "Sword" })
-```
-
-Both kinds of store can live in one game. See [Typed ops](/docs/concepts/typed-ops).
-
-**Two answers you may not have seen before.** `Reserve` now answers `Refused` on a key already
-holding 256 reservations at once. A shop key sits at a handful, so reaching this means they are being
-made faster than they are being confirmed or released. Handle it the same way you already handle
-`Refused` from asking for more than the field holds.
-
-`ClearDelivered` is about money moving between keys, so it now throws on a store that names no
-`Balance` field, where before it wrote something the key could not read back. `RecoverTransfers`
-already asked for one. If `ClearDelivered` is in your support tooling, point it at the store that
-names the balance.
-
-**Erase.** It already passed on money the key was still sending. It now also passes on money that had
-been waiting too long to be retried, and units a `Reserve` set aside with a `To`. Nothing to change:
-an erase that used to warn about what went with the key now has less to warn about. See
-[Erase](/docs/guides/recovery#erase).
-
-## 4.2.0 [#420]
-
-```diff
-+ A tally keeps its total in a field of Ledger's own, so the number stops moving when your Default does
-+ Marker clean up starts where the last pass stopped, so every shard gets its turn
-+ A clean up pass asks both stores whether it can afford to run before each shard
-
-- A key that stopped compacting, and later stopped taking writes, after it held an op for a transaction that then aborted
-- Store:Total reading a different number on a server whose Default had changed
-- A marker left behind for good when a transaction took longer than five minutes to open one
-- Clean up spending more of the request budget than it had checked for
-- The near cap warning telling you to take out your own data when the field filling the key is Ledger's own
-
-! An Op field reads as unknown in strict Luau, so a reducer checks the type before it uses one
-! Reserve refuses a Hold longer than just under 30 days when you give it a To
-! Store:Total says so while a shard still keeps its total the old way
-```
-
-### Upgrading [#upgrading-6]
-
-**Your reducer.** An `Op` field is `unknown` now instead of `any`. In `--!strict` that means you
-check the type before you use the value:
-
-```luau
-if Op.Kind == "Add" and type(Op.Amount) == "number" then
-	return { Gold = State.Gold + Op.Amount }
-end
-```
-
-Nothing about how an op behaves changed. The checker asks for the check that a careful reducer
-already made. A file that is not strict reads the same as before.
-
-**Tallies.** A tally used to keep its total in the field you named. A fold puts your `Default` under
-every key it reads, so once a shard compacted, that `Default` was part of the total, and a build
-that changed it read the tally differently. The total now lives beside your field instead.
-
-A shard written before the upgrade moves across on its next `Bump`. Until then Ledger says so, and
-names the tally, so you know which ones are waiting. A `Total` that was already off stays off by the
-same amount, because the old shape gives no way to tell your `Default` apart from what was counted.
-Bump each tally once and the number stops drifting from there.
-
-Finish the deploy before you read a total. A server still on 4.1 reads a shard that has moved across
-as empty, so its `Total` comes back short while the deploy runs. Nothing is lost, and the number is
-right again once every server is on 4.2.
-
-**Reservations.** A `Hold` longer than just under 30 days is refused when you give a `To`. A hold
-that outlives the window Ledger keeps a delivery for cannot be given back safely, so it is written
-off instead. Leave `To` out and a long hold is fine.
-
-**A key that already stopped compacting.** This one does not fix itself, the same as 4.0.4. Ledger
-keeps an op it accepted only because a transaction was parked, and drops it once that transaction
-has been decided. It can only do that for an op written by 4.2, because that is when the op is
-marked. A key that was already stuck stays stuck, and Ledger names it in the warning.
-
-To clear one, take the op that is stuck instead of turning it away. Hand back a copy of the state
-and change nothing:
-
-```luau
-if Op.Kind == "Spend" and State.Gold < Op.Amount then
-	return table.clone(State)
-end
-```
-
-Deploy that, let the key compact, then put the guard back.
-
-**Everything else.** Drop it in. The stored record grew two fields that older builds ignore, and no
-key needs a hand.
-
-## 4.1.1 [#411]
-
-```diff
-+ Ledger.UseAsync, to replace the defer, the delay and the cancel that Ledger gives to the engine
-+ Faster encoding of the marks that name the keys of a transaction
-
-+ Better transaction mark clean up
-+ A clean up pass no longer steps over a page of marks that it did not read
-
-! Ledger writes each warning one time for each place in Ledger that sends it
-```
-
-### Upgrading [#upgrading-7]
-
-Install the new version. The stored record does not change. Your code does not change.
-
-If you use the same transaction name again after an attempt that did not commit.
-Ledger now marks a completed marker as dead. Ledger does not remove it.
-The recovery sweep removes the dead marker after one hour.
-
-You do not have to do anything. A key that holds a leg from before the upgrade settles at the next
-read of that key, or at the next write to it.
-
-**The warnings.** Ledger now writes each warning one time. Two identical failures at the same place
-in Ledger give one message. The output stays short when many keys have the same problem.
-
-**`UseAsync`.** `Ledger.UseAsync(Defer, Delay, Cancel)` replaces the three task functions that
-Ledger gives to the engine. It is for a test that has its own scheduler. Give it nothing to put
-the engine functions back.
-
-Ledger uses `Defer` for the queue on one key, and `Delay` for the timeout of a
-[`Future`](/docs/reference/future) and for the watch on a slow
-[`Observer`](/docs/reference/observer) listener. `Cancel` stops a delay. A game does not have to
-call this.
 
 
 # Advanced reducers (https://xoifaii.github.io/LedgerDocs/docs/concepts/advanced-reducers)
@@ -2619,13 +2412,42 @@ A clan or a listing takes writes from every player at once. Ledger writes down t
 Above that rate, give the entity more than one key. One key per guild rather than one for all of
 them. See [Limits](/docs/limits#applied-names).
 
-## Caching [#caching]
+## Following a key [#following-a-key]
 
-`Peek` reads the record every time you call it. There's no cache, because with twenty servers
-writing to the key a cached copy would be out of date almost immediately. It does mean you shouldn't
-call it in a loop or per frame.
+`Peek` with no `MaxAge` reads the record on each call. Do not call it in a loop or every frame.
+Follow a key that every server needs, such as a settings table, a role list or a feature switch:
 
-Read it once, hold onto it, and read again after you write.
+```luau
+Settings:Follow("config"):Subscribe(function(Config)
+	Apply(Config)
+end)
+```
+
+One shared copy of the key is in MemoryStore for the whole fleet. Each server reads the shared copy
+on a timer. It pushes the state only when the state changed. After 60 to 75 seconds the shared copy
+is stale. One server then reads the record and writes the shared copy again. The other servers
+answer the old copy until then. A change on any server reaches every server in at most 75 seconds
+plus one tick. A fleet of 5,000 servers costs the key one datastore read a minute, not 5,000.
+`Peek(Key, MaxAge)` reads the same copy without a subscription.
+
+Follow a key at server start. Do not peek it there. A follow's first read is spread over its first
+tick. A peek in a server's first second is not spread. With a follow, 5,000 servers that start
+together do not reach one copy in the same second.
+
+A followed key holds small state that changes slowly. The copy has to fit one MemoryStore item,
+32 KB. The copy carries your fields only. Keep anything that grows with players in one key per
+entry. Let the followed key point at those keys. A ban is one key per banned player. A log is one
+key per line. Do not follow those keys.
+
+To show a write on every server immediately, send the key over `MessagingService` from `Store:Stale()`.
+The receiver calls `Peek(Key, 0)`. That reads the record on one server and refills the shared copy
+for the others. Wait a random time of a few seconds before that call. Then the fleet does not reach
+one copy in the same instant, and one refill serves all of it. See
+[Telling another server to refresh](/docs/guides/transactions#telling-another-server-to-refresh).
+
+A store with no MemoryStore reads the record on each tick. When MemoryStore stops answering, each
+server keeps its copy for 10 minutes. A server with no copy reads the record once in those
+10 minutes. No server waits for another server at any point.
 
 ## Naming their ops [#naming-their-ops]
 
@@ -3145,9 +2967,10 @@ fold, so an `Edit` can spend units somebody holds and their `Confirm` is then `R
 was lost, or never made because the MemoryStore was down, costs the same: one refused checkout and
 never an oversell. Show players `Holds` rather than the field when "3 left" has to mean it.
 
-Asking to reserve under a name that already holds something answers `true` and holds nothing extra,
-so a retry is safe. Confirming twice spends once, since the op's id comes from the name. Once a hold
-has gone, the same name can be used again.
+Asking to reserve under a name that already holds the same thing answers `true` and holds nothing
+extra, so a retry is safe. Under a different amount or field it answers `Spent`. Confirming twice
+spends once, since the op's id comes from the name. Once a hold has gone, a new hold can be taken
+under the same name, but a confirm under it never spends twice. Give each purchase its own Id.
 
 ### One key is one item [#one-key-is-one-item]
 
@@ -4506,8 +4329,9 @@ end)
 An observer is a stream of values you can subscribe to. Ledger pushes the new state onto one every
 time a change goes through, and it hands you that same stream from `Session:Observe()`.
 
-`Store:Stale()` is the other stream Ledger gives you. It carries the keys this server has changed
-rather than a state table. Everything on this page works on both.
+`Store:Stale()` is the second stream Ledger gives you. It carries the keys this server changed, not
+a state table. `Store:Follow()` is the third stream. It carries the state on one key that every
+server reads. Everything on this page works on all three.
 
 ## Subscribe [#subscribe]
 
@@ -4912,14 +4736,26 @@ Player only. The state table, or `nil`. Shorthand for `Get` then `Get()`.
 ### Peek [#peek]
 
 ```luau
-Store:Peek(Key: KeyLike) -> Future<D?, Reason?>
+Store:Peek(Key: KeyLike, MaxAge: number?) -> Future<D?, Reason?>
 ```
 
-Reads the record and folds it. Works on anyone, online here, elsewhere, or offline. No cache, so it
-costs a request every time.
+Reads the record and folds it. It works for any key, with the player here, on another server, or
+offline. Without `MaxAge` there is no cache. Each call costs one request.
 
-A key nobody has written folds to your `Default`, so `nil` always means the read failed and the
-reason says why. `Behind` means a newer server wrote it, anything else is worth another go.
+`MaxAge` answers a copy instead. This server keeps a copy of the key. While that copy is younger
+than `MaxAge` seconds, `Peek` answers it with no call. After that, `Peek` reads the shared copy in
+MemoryStore for one request unit. The whole fleet reads that one shared copy. After 60 to 75 seconds
+the shared copy is stale. One server then reads the record and writes the shared copy again. The
+other servers answer the old copy until then. Each server has its own limit between 60 and
+75 seconds. One server refills the copy, not all of them.
+
+A `MaxAge` of 0 reads the record now, through the same claim. When the whole fleet is told to
+refresh at the same time, only one server reads the record. The copy carries your fields only.
+`_Received` and `_Held` are not on it. `Peek` with a `MaxAge` works on string keyed stores only. See
+[Following a key](/docs/guides/entity-stores#following-a-key).
+
+A key nobody has written folds to your `Default`. `nil` always means the read failed, and the reason
+says why. `Behind` means a newer server wrote the key. Try again on any other reason.
 
 ### DidApply [#didapply]
 
@@ -5094,20 +4930,22 @@ taken back out of one. Anything with a limit belongs on a single key, where `Res
 Store:Total(Name: string, Field: string, MaxAge: number?) -> Future<number?, Reason?>
 ```
 
-Answers the sum cached in MemoryStore while that sum is under a minute old, for one request unit.
-Once it is older, one server reads all 16 shards and caches the sum again while every other server
-keeps answering the old one, so a total from another server is at most about a minute and a quarter
-behind. Your own server's bumps show in its totals at once. `MaxAge` answers this server's own last
-sum without any call while it is younger than that many seconds, so a pot drawn every five seconds
-costs nothing between its own ticks.
+Answers the sum cached in MemoryStore, for one request unit. After 60 to 75 seconds that sum is
+stale. One server then reads all 16 shards and caches the sum again. The other servers answer the
+old sum until then. A total from another server is at most 90 seconds behind, plus the time one
+refill takes. Each server has its own limit between 60 and 75 seconds. One server refills the sum,
+not all of them. Your own server's bumps show in its totals immediately.
 
-It answers what has been added, not what the keys hold. Every shard starts at whatever your `Default`
-says the field is, and there are 16 of them, so that baseline is taken back off. A tally nobody has
-added to reads 0 whatever the `Default` is.
+`MaxAge` answers this server's own last sum with no call while that sum is younger than `MaxAge`
+seconds. A pot drawn every five seconds costs nothing between its own refills.
 
-MemoryStore has to be reachable, which in Studio means API access on. A store whose hook has no
-MemoryStore, or whose MemoryStore is down, reads the 16 shards every time and answers the same sum,
-and says so once.
+It answers what has been added, not what the keys hold. Each of the 16 shards starts at the value
+your `Default` gives the field. That baseline is taken off the sum. A tally nobody has added to
+reads 0 for any `Default`.
+
+MemoryStore has to be reachable. In Studio that means API access on. A store whose hook has no
+MemoryStore, or whose MemoryStore is down, reads the 16 shards each time and answers the same sum.
+It says so once.
 
 ### Tx [#tx]
 
@@ -5226,6 +5064,34 @@ Listeners on this stream run on their own thread and may yield, which the ones o
 
 Use it to flush a session the moment another part of your game writes to its key. See
 [Transactions](/docs/guides/transactions#a-live-session-does-not-know-a-leg-wrote-to-it).
+
+### Follow [#follow]
+
+```luau
+Store:Follow(Key: KeyLike) -> Observer<D>
+```
+
+A stream of the state on one key. Ledger keeps it fresh from the shared copy. Subscribe once. Ledger
+reads the shared copy on a timer. The timer runs every 30 seconds while the key changes. It slows to
+every 4 minutes while the key does not change. Ledger pushes the state only when it changed. The
+first tick pushes the state as it is. A subscribe pushes nothing. Call `Peek` with a `MaxAge` for
+the value now.
+
+```luau
+Settings:Follow("config"):Subscribe(function(Config)
+	Apply(Config)
+end)
+```
+
+The timer starts with the first listener. It stops when the last listener disconnects. `Destroy`
+stops it too. A write on this server shows on this server's stream immediately. A write on another
+server shows after the shared copy is refilled and this server ticks. That takes at most 75 seconds
+plus one tick. It is faster when that server tells this one to refresh. Ledger hands back one stream
+per key. `Follow` works on string keyed stores only. See
+[Following a key](/docs/guides/entity-stores#following-a-key).
+
+Listeners run inline and must not yield, the same as `Session:Observe()`. See
+[Observer](/docs/reference/observer#listeners-run-inline).
 
 ## Maintenance [#maintenance]
 

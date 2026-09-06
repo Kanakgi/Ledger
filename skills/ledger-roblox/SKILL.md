@@ -1,6 +1,6 @@
 ---
 name: ledger-roblox
-description: Expert help for a Roblox game built on Ledger, the lock free datastore library where state is a fold over a log of ops (Ledger.New, NewTyped, Session:Apply, Commit, Store:Edit, Transfer, Tx, Reserve, Confirm, Bump, Total, Once, DidApply, reducers, and the ten Reason values Refused, Busy, Spent, Unresolved, Closed, Backlog, Full, Invalid, Behind, Held). Use it to answer questions about Ledger, write and review a reducer, choose between Apply, Commit, Edit, Transfer, Tx and Reserve, work out what a call costs against the request budget, review a game's Ledger usage, and debug symptoms such as a write that answered true and did not stick, money missing or stuck in _Held, a key that answers Busy or Full and stays there, a session that will not save, a total that reads stale, a purchase granted twice, or a rolling deploy answering Behind. It also carries the rules for touching live player data, which calls only read, which write, and which throw data away. Do not use it for a project on ProfileService, DataStore2 or raw DataStoreService, and do not use it inside the Ledger library repo itself, which has its own brief in internal/CLAUDE.MD.
+description: Expert help for a Roblox game built on Ledger, the lock free datastore library where state is a fold over a log of ops (Ledger.New, NewTyped, Session:Apply, Commit, Store:Edit, Transfer, Tx, Reserve, Confirm, Bump, Total, Follow, Once, DidApply, reducers, and the ten Reason values Refused, Busy, Spent, Unresolved, Closed, Backlog, Full, Invalid, Behind, Held). Use it to answer questions about Ledger, write and review a reducer, choose between Apply, Commit, Edit, Transfer, Tx and Reserve, work out what a call costs against the request budget, review a game's Ledger usage, and debug symptoms such as a write that answered true and did not stick, money missing or stuck in _Held, a key that answers Busy or Full and stays there, a session that will not save, a total that reads stale, a followed key that does not update on another server, a purchase granted twice, or a rolling deploy answering Behind. It also carries the rules for touching live player data, which calls only read, which write, and which throw data away. Do not use it for a project on ProfileService, DataStore2 or raw DataStoreService, and do not use it inside the Ledger library repo itself, which has its own brief in internal/CLAUDE.MD.
 ---
 
 # Ledger
@@ -30,7 +30,7 @@ stores, and it will not hide a reducer that is wrong. And a question in a Ledger
 `internal/CLAUDE.MD`, this is Ledger's own source. Stop, and follow `internal/CLAUDE.MD` instead.
 That brief assumes you may change the library. This one assumes you may not.
 
-**Which version?** This file is pinned to **Ledger 5.x**, checked against 5.0.0.
+**Which version?** This file is pinned to **Ledger 5.x**, checked against 5.1.0.
 
 Find theirs, in this order: `Ledger.Version` if the build has one, then the `xoifaii/ledger` line in
 `wally.toml`, then `@xoifail/ledger` in `package.json`. A game that installed the `.rbxm` model file
@@ -53,7 +53,7 @@ they say. Do not assume Ledger because somebody said "datastore".
 Three copies, in the order to reach for them. Do not assume the later ones are available.
 
 **1. `references/docs-bundle.md`, beside this file.** The whole documentation in one file, every
-page, 5,536 lines. It is here because it is the only copy that is always readable: a game may have
+page, 5,402 lines. It is here because it is the only copy that is always readable: a game may have
 installed Ledger as a model file with no source tree at all, and a model may have no way to fetch a
 website. Search it before anything else.
 
@@ -90,6 +90,8 @@ not enough.
 | `Session:Get`, `Session:Observe`, `Session:DidApply`, `LogSize`, `LogBytes` | no | no | no |
 | `Holds` | no | one read | no |
 | `Peek`, `Store:DidApply` | reads | no | **when it finds work** |
+| `Peek` with a `MaxAge` | reads the record when the copy is stale, on one server | reads, and writes the shared copy | when it finds work |
+| `Follow` | reads the record when the copy is stale, on one server | reads on a tick, and writes the shared copy | **a tick every 30 seconds to 4 minutes** |
 | `Total` | reads 16 keys when its sum is stale | reads, and writes the shared sum | no |
 | `Load` | reads, and **settles what it finds** | no | when it finds work |
 | `Apply` | queues, written on the next save | no | no |
@@ -101,8 +103,8 @@ not enough.
 | `Resettle`, `RecoverTransfers`, `ClearDelivered`, `Ledger.Sweep` | writes | no | no |
 | `Unload`, `Session:Release` | writes, then closes the session | no | no |
 | **`Reset`** | **writes the default back** | no | no |
-| **`Erase`** | **buries the key, and removes it on a second call** | removes the key's holds | no |
-| **`Destroy`** | **saves every session on that store, then ends them** | no | stops following its keys |
+| **`Erase`** | **buries the key, and removes it on a second call** | removes the key's holds and its shared copy | no |
+| **`Destroy`** | **saves every session on that store, then ends them** | no | ends its follows, and the sweep forgets its keys |
 | **`CloseAll`** | **saves every session on every store, then ends them** | no | stops the sweep |
 
 Five of those surprise people, and each has cost somebody time somewhere:
@@ -113,7 +115,9 @@ Five of those surprise people, and each has cost somebody time somewhere:
   it means "I only read it" is not always true.
 - **`Load` settles what it finds.** Loading a player can commit a parked transaction leg and finish a
   transfer that a dead server left half done.
-- **`Total` writes.** It claims the refill and writes the summed value back for the whole fleet.
+- **`Total`, `Peek` with a `MaxAge` and `Follow` write.** One server claims the refill and writes
+  the shared sum or copy back for the whole fleet. A `Peek` with a `MaxAge` of zero reads the record
+  through that claim, so a fleet told to refresh at the same time reads it once.
 - **`Confirm` is two writes that are not atomic**, the op on the key and then the hold being let go.
   A retry is deduped by the op id until the key compacts, and answers `Unresolved` after that.
 - **`Erase` is two calls.** The first leaves a tombstone that turns away anything sent to the key for
@@ -198,6 +202,7 @@ game. Load one of these, not all of them.
 | "move currency between two players", "a trade", "a gift" | `guides/transfers`, then `guides/transactions` |
 | "limited stock", "a hold", "how long can I hold it" | `guides/reservations`, and the known wrong note above |
 | "a pot", "a counter", "a total across servers" | `guides/reservations#bump-and-total` |
+| "a settings key every server reads", "config", "a `Peek` in a loop" | `guides/entity-stores#following-a-key` |
 | "how do I test this" | `guides/testing`, and the mock block above |
 | "clans, a guild bank, a global shop, a world record" | `guides/entity-stores` |
 | "how does the player see this update" | `reference/observer`, then `guides/sessions#watching-state` |
@@ -240,6 +245,6 @@ Say it once, plainly, then do the work the developer asked for. Do not repeat it
 
 ## What this is checked against
 
-Ledger 5.0.0, checked against `src` and the documentation on 2026-09-04. Every claim in these files
+Ledger 5.1.0, checked against `src` and the documentation on 2026-09-06. Every claim in these files
 can be checked in under a minute with `references/verify.md`. If a check fails, the source is right
 and this file is stale, so say so.

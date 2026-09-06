@@ -93,6 +93,12 @@ same answer, on a key that is already the hottest thing in the experience.
 *Right when:* a short event where a visibly live number is the feature, and they have counted the
 units against `1000 + 120 per CCU` a minute.
 
+**"Peek the settings key on every server every few seconds."** A `Peek` with no `MaxAge` is one
+datastore read per server per call, on one key. Measured at 5,000 servers every 30 seconds that is
+40 MB a minute against a lane of 25 MB. `Follow` the key, or `Peek` it with a `MaxAge`, and the
+fleet reads it once a minute.
+*Right when:* one server needs the record itself, once, before a decision. That is a plain `Peek`.
+
 **"Put the whole economy on one key."** A key takes one transaction at a time and every other one
 answers `Busy`. Contention costs throughput, never correctness, but the throughput goes fast: 32
 servers on one key measured about 8 attempts each.

@@ -456,7 +456,8 @@ else there. `WaitForLoaded` rather than `Get` in anything that fires during a jo
 after `Unload`.
 
 **Budget.** Count writes per player per minute against roughly 20. No `Commit` on a gameplay path.
-`Total` with a `MaxAge` that matches how often it is drawn. No `Peek` in a loop.
+`Total` with a `MaxAge` that matches how often it is drawn. No `Peek` in a loop without a `MaxAge`,
+and a key every server polls is a `Follow`.
 
 **Contention.** Which keys does every server write. A key takes one transaction at a time.
 

@@ -176,14 +176,14 @@ The set of methods is closed. To be sure a method exists before recommending it:
 grep -oE "^\s+[A-Za-z]+: \(self: any" src/Core/Api.luau | grep -oE "[A-Za-z]+" | grep -v "self\|any" | sort -u
 ```
 
-That prints every method on a store and on a session, and nothing else. Checked on 2026-09-04 it
-prints 34 names. Anything not in there does not exist, however plausible it sounds.
+That prints every method on a store and on a session, and nothing else. Checked on 2026-09-06 it
+prints 35 names. Anything not in there does not exist, however plausible it sounds.
 
 ## Checking what touches what
 
 ```
 grep -rn "self:Watch\|:WatchHeld\|Sweep:Add" src
-grep -rn "self.Tallies\|self.Leases\|self.Bookings" src
+grep -rn "self.Tallies\|self.Leases\|self.Bookings\|self.Copier" src
 ```
 
 The first is every place a key is handed to the recovery sweep. The second is every place MemoryStore
