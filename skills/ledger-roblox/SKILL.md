@@ -53,7 +53,7 @@ they say. Do not assume Ledger because somebody said "datastore".
 Three copies, in the order to reach for them. Do not assume the later ones are available.
 
 **1. `references/docs-bundle.md`, beside this file.** The whole documentation in one file, every
-page, 5,402 lines. It is here because it is the only copy that is always readable: a game may have
+page, 5,414 lines. It is here because it is the only copy that is always readable: a game may have
 installed Ledger as a model file with no source tree at all, and a model may have no way to fetch a
 website. Search it before anything else.
 
@@ -119,7 +119,9 @@ Five of those surprise people, and each has cost somebody time somewhere:
   the shared sum or copy back for the whole fleet. A `Peek` with a `MaxAge` of zero reads the record
   through that claim, so a fleet told to refresh at the same time reads it once.
 - **`Confirm` is two writes that are not atomic**, the op on the key and then the hold being let go.
-  A retry is deduped by the op id until the key compacts, and answers `Unresolved` after that.
+  A retry is deduped by the op id while the op is in the log, answers `Unresolved` once it is in the
+  snapshot, and sells again once the key has forgotten it, the log plus the last 2048 absorbed ids.
+  A confirm given a `Once` is refused for 30 days instead.
 - **`Erase` is two calls.** The first leaves a tombstone that turns away anything sent to the key for
   8 days. Only a second `Erase` after that window takes the record off.
 

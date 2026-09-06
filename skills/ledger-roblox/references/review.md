@@ -190,8 +190,8 @@ count, so once it is full it cannot be pruned back and the key stops taking writ
 
 **When it fires.** Weeks in, at scale, on the busiest key in the game. It does not recover.
 
-**Fix.** Spread the entity over more keys before that point. `Edit`, `Reserve` and `Confirm` write no
-name, so use them where a name is not needed.
+**Fix.** Spread the entity over more keys before that point. `Edit` and `Reserve` write no name, and
+`Confirm` writes one only when given a `Once`, so use them where a name is not needed.
 
 **Not a match.** A name on a player's own key. One player cannot generate that rate.
 

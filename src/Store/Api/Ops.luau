@@ -443,7 +443,6 @@ function Store.Confirm(self: Store, Key: KeyLike, Id: string, Kind: string, Fiel
 	local Rid = Validate.Name(Id, MAX_BOOKING_ID, "Confirm")
 	assert(type(Kind) == "string" and #Kind > 0, "Confirm needs the Kind of the op that spends the units, after the Id")
 	assert(Fields == nil or type(Fields) == "table", `Confirm '{Kind}' Fields must be a table when given`)
-	assert(Fields == nil or (Fields :: any).Once == nil, "Confirm takes no Once. the booking Id already makes the op land once")
 
 	local Op = NewOp.New(Kind, Fields)
 	Op.Id = `{Bookings.CONFIRM_ID}:{Rid}`

@@ -21,6 +21,7 @@ local Sizes = require("../../src/Core/Constants/Sizes")
 local Bookings = require("../../src/Core/Constants/Bookings")
 local Mark = require("../../src/Encode/Mark")
 local MemoryStore = require("../../src/Core/Constants/MemoryStore")
+local Compact = require("../../src/Record/Compact")
 
 local Fault = Suite.Fault
 local Reducers = Suite.Reducers
@@ -56,6 +57,20 @@ local function Units(T: Case, Body: () -> ()): number
 	local Before = T.Service.Units
 	Body()
 	return T.Service.Units - Before
+end
+
+local function Filler(Count: number): { any }
+	local Ops: { any } = table.create(Count)
+	for Index = 1, Count do
+		Ops[Index] = { Id = `filler{Index}`, Kind = "Restock", Count = 0 }
+	end
+	return Ops
+end
+
+local function Forget(Shelf: Fixture, Key: string)
+	Shelf:Log():Compact(Key, Shelf:Format())
+	Shelf:Append(Key, Filler(Compact.SEEN_LIMIT))
+	Shelf:Log():Compact(Key, Shelf:Format())
 end
 
 Cases.Case("a reservation holds units without spending them", function(T: Case)
@@ -148,6 +163,42 @@ Cases.Case("confirming twice spends once", function(T: Case)
 	T:Is("confirming the same booking again", Again, true)
 	T:Is("stock left", Shelf:Amount("shelf"), 8)
 	T:Is("units still held", Holds(Shelf, "shelf"), 0)
+end)
+
+Cases.Case("a plain confirm is deduplicated only while the key remembers its op", function(T: Case)
+	local Shelf = T:Shelf()
+
+	Shelf.Store:Reserve("shelf", "Stock", 1, "cart1"):Wait()
+	Sell(Shelf, "shelf", "cart1", 1)
+	Shelf:Log():Compact("shelf", Shelf:Format())
+	local Absorbed, Why = Sell(Shelf, "shelf", "cart1", 1)
+	local Between = Shelf:Amount("shelf")
+
+	Forget(Shelf, "shelf")
+	local Forgotten = Sell(Shelf, "shelf", "cart1", 1)
+
+	T:Is("a confirm replayed once its op is in the snapshot", Absorbed, false)
+	T:Is("the reason", Why, Reasons.Unresolved)
+	T:Is("stock after that replay", Between, 9)
+	T:Is("the op is no longer in the seen list", table.find(Shelf:Record("shelf").Seen, `{Bookings.CONFIRM_ID}:cart1`) ~= nil, false)
+	T:Is("a confirm replayed once the key has forgotten its op", Forgotten, true)
+	T:Is("stock after that replay, sold again", Shelf:Amount("shelf"), 8)
+end)
+
+Cases.Case("a confirm carrying a Once is refused once the key has forgotten its op", function(T: Case)
+	local Shelf = T:Shelf()
+
+	Shelf.Store:Reserve("shelf", "Stock", 1, "cart1"):Wait()
+	local First = Shelf.Store:Confirm("shelf", "cart1", "Sell", { Count = 1, Once = "sale1" }):Wait()
+
+	Forget(Shelf, "shelf")
+	local Again, Why = Shelf.Store:Confirm("shelf", "cart1", "Sell", { Count = 1, Once = "sale1" }):Wait()
+
+	T:Is("the first confirm", First, true)
+	T:Is("a confirm replayed once the key has forgotten its op", Again, false)
+	T:Is("the reason", Why, Reasons.Refused)
+	T:Is("stock, sold once", Shelf:Amount("shelf"), 9)
+	T:Is("the name still answers for the sale", (Shelf.Store:DidApply("shelf", "sale1"):Wait()), true)
 end)
 
 Cases.Case("the reducer is the gate at checkout, with a hold or without one", function(T: Case)

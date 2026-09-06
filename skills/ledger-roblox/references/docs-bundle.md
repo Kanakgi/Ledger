@@ -400,7 +400,8 @@ A key many players write to fills at the rate all of them write to it. Every `Tx
 `Transfer` adds one name. One name is about 40 bytes and lasts 30 days. That is about 1,700 of
 them a day on one key before the names alone fill the state cap.
 
-`Reserve` and `Confirm` add no name. Stock held on one key has no such ceiling.
+`Reserve` adds no name. `Confirm` adds one only when you give it a [`Once`](/docs/concepts/once).
+Stock sold without one has no such ceiling.
 
 A key that reaches the cap stays there. `ClearDelivered` has nothing older than 30 days to drop. Spread the entity over several keys before that point, the same way `Bump` spreads
 a total. See [Entity stores](/docs/guides/entity-stores).
@@ -1321,9 +1322,11 @@ A key nobody has ever written folds to your `Default`, so a read never gives you
 
 ## Why a retry is safe [#why-a-retry-is-safe]
 
-Every op carries an id, and an id applies at most once on a key. A retry that already went through
-answers `true` and moves nothing the second time. That holds for
-[`Once`](/docs/concepts/once) names, transfer ids and transaction ids.
+Every op carries an id, and an id applies at most once while the key remembers it. A key remembers
+an op while it is in the log, and for the next 2048 ops it absorbs. A retry that already went
+through answers `true` and moves nothing the second time. A [`Once`](/docs/concepts/once) name, a
+transfer id and a transaction id are remembered for 30 days instead. Use one of those for anything
+that may be retried later than the key remembers it.
 
 The id has to be the same one. Build it before the call and keep it for the retry:
 
@@ -2115,8 +2118,10 @@ A log that only ever grows would eventually hit the 4 MB value limit. Once a log
 Ledger folds it down into a fresh snapshot and drops the ops it just absorbed. Autosave does this on
 its own, and `Session:Compact()` forces it.
 
-Your reducer never sees any of that. Compaction must not lose the op ids it has already applied, or a
-retry afterwards would apply twice. Ledger keeps them inside the state itself, under `_Received`.
+Your reducer never sees any of that. Compaction keeps the ids of the ops it absorbed on the record,
+under `Seen`. A retry that arrives afterwards applies nothing. `Seen` keeps the newest 2048. A
+[`Once`](/docs/concepts/once) name, a transfer id and a transaction id live inside the state, under
+`_Received`, for 30 days.
 
 ## Reserved fields [#reserved-fields]
 
@@ -2406,8 +2411,8 @@ A clan or a listing takes writes from every player at once. Ledger writes down t
 `Tx` leg and every `Transfer` that goes through. It keeps each name for 30 days. That is about
 1,700 a day on one key before those names fill the state cap.
 
-`Edit` writes no name. A clan that only takes `Edit` has nothing to plan around. `Reserve` and
-`Confirm` write none either.
+`Edit` writes no name. A clan that only takes `Edit` has nothing to plan around. `Reserve` writes
+none. `Confirm` writes one only when you give it a [`Once`](/docs/concepts/once).
 
 Above that rate, give the entity more than one key. One key per guild rather than one for all of
 them. See [Limits](/docs/limits#applied-names).
@@ -2969,8 +2974,11 @@ never an oversell. Show players `Holds` rather than the field when "3 left" has 
 
 Asking to reserve under a name that already holds the same thing answers `true` and holds nothing
 extra, so a retry is safe. Under a different amount or field it answers `Spent`. Confirming twice
-spends once, since the op's id comes from the name. Once a hold has gone, a new hold can be taken
-under the same name, but a confirm under it never spends twice. Give each purchase its own Id.
+spends once while the key remembers the op. The key remembers an op while it is in the log, and for
+the next 2048 ops it absorbs. Once a hold has gone, a new hold can be taken under the same name. A
+confirm under it does not sell again while the key remembers the first confirm. Give each purchase
+its own Id. A confirm that may be retried later than the key remembers it needs a
+[`Once`](/docs/concepts/once), see [Confirm](/docs/reference/store#confirm).
 
 ### One key is one item [#one-key-is-one-item]
 
@@ -4892,12 +4900,16 @@ whose hold ran out, or was never made because the MemoryStore was down, still se
 On a [typed store](/docs/concepts/typed-ops) `Kind` and `Fields` are checked the way `Edit` checks
 them.
 
-`Fields` cannot carry a `Once`. The booking name already makes the op land once, and a `Once` would
-leave a name on the key for every sale.
+The key remembers the op while it is in the log, and for the next 2048 ops it absorbs. A confirm
+replayed inside that window spends nothing more. Once the op is in the snapshot, the reply is
+[`Unresolved`](/docs/concepts/reasons). The record cannot say whether that op took or was turned
+away. Once the key has forgotten the op, a replay sells the units again.
 
-Once the op has been folded into the snapshot, asking again answers
-[`Unresolved`](/docs/concepts/reasons). The record cannot say any more whether that op took or was
-turned away. The units were still spent exactly once.
+`Fields` can carry a [`Once`](/docs/concepts/once). A named confirm replayed after the key has
+forgotten its op answers `Refused`, and `DidApply` answers `true` for 30 days. A name costs the key
+40 bytes for 30 days. A key that sells 1,700 units a day fills its state with names in a month. Give
+a confirm a name only when it may be retried later than the key remembers it. Put the name for the
+grant on the player's key.
 
 Costs one datastore request and two MemoryStore request units.
 

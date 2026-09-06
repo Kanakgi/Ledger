@@ -63,7 +63,9 @@ Three of them are more than they look:
 - **`Confirm`** writes the op through the ordinary write path and then drops the hold in MemoryStore.
   The two are not atomic and are not meant to be. A retry is deduped by the op id, which derives from
   the reservation name, until the key compacts. After that the record cannot tell whether the op took
-  or was turned away, and a repeat answers `Unresolved`.
+  or was turned away, and a repeat answers `Unresolved`. Once the key has forgotten the op, the log
+  plus the last 2048 absorbed ids, a repeat sells again. A confirm given a `Once` is refused for 30
+  days instead, and `DidApply` answers for the name.
 - **`Transfer`** is three ops across two keys. It can leave money in `_Held` on purpose, which is the
   only safe place for it, and answers `Held` when it could not hand it over.
 
