@@ -1275,4 +1275,29 @@ Cases.Case("a reserve that landed and lost its answer is followed by the sweep",
 	T:Is("money is conserved", Bank:Amount("lostA") + Bank:Amount("lostB") + Bank:Aside("lostA"), 100)
 end)
 
+Cases.Case("a retry that reads the receiver stale after a delivery lost its answer pays once", function(T: Case)
+	local Bank = Funded(T, { lagA = 100, lagB = 0 })
+	local Lost = Bank:Fault(Fault.Updates():OnKey("lagB"):Swallow())
+	local Ok, Why = Bank.Store:Transfer("lagA", "lagB", 40, "lag1"):Wait()
+	Bank:Healed()
+
+	T:Ok("the delivery lost its answer", Lost.Fired >= 1)
+	T:Is("the first attempt", Ok, false)
+	T:Is("the reason", Why, "Unresolved")
+	T:Is("gold on the receiver, the delivery landed", Bank:Amount("lagB"), 40)
+	T:Is("the hold the lost answer left standing", Bank:Aside("lagA"), 40)
+
+	local Stale = Bank:Fault(Fault.Reads():OnKey("lagB"):Stale())
+	local Again, Because = Bank.Store:Transfer("lagA", "lagB", 40, "lag1"):Wait()
+	Bank:Healed()
+
+	T:Ok("the retry read the receiver as it was before the delivery", Stale.Fired >= 1)
+	T:Is("the retry under the same name", Again, true)
+	T:Is("the reason", Because, nil)
+	T:Is("gold on the receiver, paid once", Bank:Amount("lagB"), 40)
+	T:Is("gold on the sender", Bank:Amount("lagA"), 60)
+	T:Is("anything still set aside", Bank:Aside("lagA"), 0)
+	T:Is("money is conserved", Bank:Amount("lagA") + Bank:Amount("lagB") + Bank:Aside("lagA"), 100)
+end)
+
 return Cases

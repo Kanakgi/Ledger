@@ -7,7 +7,8 @@
 
 	A fault names the call it watches and what happens to it. Dropped never reached the service.
 	Swallowed landed and lost its answer. Stalled arrives late. Meddled goes through after running
-	something first. An ordinal aims one at the Nth matching call.
+	something first. Stale is a read that answers the version before the newest, or nothing when
+	the key has only one. An ordinal aims one at the Nth matching call.
 
 	Wrap puts a memory hook behind the faults a case adds to it, over its datastores and its
 	MemoryStore maps alike. The store Ledger is handed cannot tell it is being lied to. A map and a
@@ -22,12 +23,13 @@
 local Engine = require("../../src/Util/Engine")
 local Memory = require("../../src/Hooks/Memory")
 
-export type Effect = "Drop" | "Swallow" | "Stall" | "Meddle"
+export type Effect = "Drop" | "Swallow" | "Stall" | "Meddle" | "Stale"
 
 local DROP: Effect = "Drop"
 local SWALLOW: Effect = "Swallow"
 local STALL: Effect = "Stall"
 local MEDDLE: Effect = "Meddle"
+local STALE: Effect = "Stale"
 
 local READ = "GetAsync"
 local SET = "SetAsync"
@@ -54,6 +56,7 @@ type SpecImpl = {
 	Swallow: (self: Spec) -> Spec,
 	Stall: (self: Spec, Seconds: number) -> Spec,
 	Meddle: (self: Spec, Body: () -> ()) -> Spec,
+	Stale: (self: Spec) -> Spec,
 
 	Matches: (self: Spec, Name: string, Method: string, Key: string) -> boolean,
 	Due: (self: Spec) -> boolean,
@@ -111,6 +114,19 @@ local function Fire(Held: Spec, Scheduler: Engine.Scheduler, Inner: any, Method:
 			Body()
 		end
 		return Inner[Method](Inner, ...)
+	end
+	if Held.Effect == STALE then
+		local Look = Inner.Look
+		assert(Look ~= nil, "a stale read needs the fake datastore's versions, and a map keeps none")
+		local Key = tostring((...))
+		local Slot = (Look :: any)(Inner, Key)
+		local Entries = if Slot == nil then {} else Slot.Entries
+		local Prior = Entries[#Entries - 1]
+		if Prior == nil or Prior.Text == nil then
+			Inner:Reach(Enum.DataStoreRequestType.GetAsync)
+			return nil, nil
+		end
+		return Inner:GetVersionAsync(Key, Prior.Label)
 	end
 
 	Inner[Method](Inner, ...)
@@ -218,6 +234,12 @@ end
 function Spec.Meddle(self: Spec, Body: () -> ()): Spec
 	self.Effect = MEDDLE
 	self.Body = Body
+	return self
+end
+
+function Spec.Stale(self: Spec): Spec
+	assert(self.Method == READ, "only a read can answer stale, a write either lands or does not")
+	self.Effect = STALE
 	return self
 end
 
