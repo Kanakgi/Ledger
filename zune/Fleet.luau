@@ -13,10 +13,13 @@
 	failing every call, or partial, where reads answer and writes do not. The before and after are
 	measured rather than worked out.
 
+	A third word runs only the rows whose name holds it.
+
 	Return type: Nothing. It prints.
 	Example usage:
 		zune run zune/Fleet.luau 5000
 		zune run zune/Fleet.luau 5000 absent
+		zune run zune/Fleet.luau 5000 "" follow
 --]=]
 
 local Engine = require("./Engine")
@@ -28,6 +31,9 @@ local Case = require("../tests/Suite/Case")
 local Ledger = require("../src") :: any
 local Wrapper = require("../src/Util/DataStoreWrapper")
 local Bookings = require("../src/Core/Constants/Bookings")
+local Datastore = require("../src/Core/Constants/Datastore")
+local Follows = require("../src/Core/Constants/Follows")
+local Measure = require("../src/Encode/Measure")
 local MemoryStore = require("../src/Core/Constants/MemoryStore")
 local Messages = require("../src/Core/Constants/Messages")
 local Shards = require("../src/Core/Constants/Shards")
@@ -41,6 +47,7 @@ Engine.Listen(Suite.Heard)
 
 local SERVERS = tonumber(zune.process.args[2]) or 1000
 local MODE = zune.process.args[3]
+local ROW = zune.process.args[4]
 local MINUTES = 10
 local HOUR = 60
 local CONTENDERS = math.min(32, SERVERS)
@@ -54,11 +61,13 @@ local CHAOS_STALL = 0.02
 local CHAOS_TX = 3
 local IDLE_MINUTES = 10
 local IDLE_WRITES = 200
+local CONFIG_ROLES = 100
+local CONFIG_ROLE_BYTES = 30
 local ACCUSED = Messages.ACCUSED
 
 type Fixture = Suite.Fixture
 
-Suite.Cache(MODE :: any)
+Suite.Cache(if MODE == "" then nil else MODE :: any)
 
 local function Row(Label: string, Calls: number, Units: number, Per: string)
 	print(string.format("  %-58s %10d calls %10d units   %s", Label, Calls, Units, Per))
@@ -126,6 +135,10 @@ local function Move(Held: Fixture, A: string, B: string, Amount: number, Id: str
 end
 
 local function Bench(Name: string, Body: (Suite.Case) -> ())
+	if ROW ~= nil and ROW ~= "" and string.find(Name, ROW, 1, true) == nil then
+		return
+	end
+
 	local T = Case.Open(Name)
 	local Started = os.clock()
 	local Raised = Case.Drive(T, Body)
@@ -151,7 +164,7 @@ end
 local function Chaos(Held: Fixture)
 	local Turn = Held.Store.Wrapper.Scheduler
 	for _, Method in { "GetAsync", "UpdateAsync", "RemoveAsync", "ListKeysAsync", "SetAsync" } do
-		for _, Name in { Held.Data, Held.Marked, Transactions.LEASE_MAP, Shards.MAP, Bookings.MAP } do
+		for _, Name in { Held.Data, Held.Marked, Transactions.LEASE_MAP, Shards.MAP, Bookings.MAP, Follows.MAP } do
 			Held.Hook.Fail(Fault.On(Method):OnStore(Name):Meddle(function()
 				local Roll = math.random()
 				if Roll < CHAOS_DROP then
@@ -555,6 +568,71 @@ Bench("chaos", function(T: Suite.Case)
 			Count * PLAYERS
 		)
 	)
+end)
+
+Bench("follow", function(T: Suite.Case)
+	local Servers = Fleet(T, SERVERS)
+	local Roles: { [string]: string } = {}
+	for Index = 1, CONFIG_ROLES do
+		Roles[`role{Index}`] = string.rep("x", CONFIG_ROLE_BYTES)
+	end
+	Servers[1]:Seed("config", { Gold = START, Touches = 0, Roles = Roles })
+	local Bytes = Measure(Servers[1]:Record("config"))
+
+	local Before = Calls(Servers)
+	local Bodies: { () -> () } = {}
+	for _, Held in Servers do
+		table.insert(Bodies, function()
+			Held.Store:Peek("config"):Wait()
+		end)
+	end
+	T:Race(Bodies)
+	local Boot = Calls(Servers) - Before
+
+	Before = Calls(Servers)
+	local Ticks = MINUTES * (Windows.SWEEP // Windows.AUTOSAVE)
+	for _ = 1, Ticks do
+		for _, Held in Servers do
+			Held.Store:Peek("config"):Wait()
+		end
+		T:Advance(Windows.AUTOSAVE)
+	end
+	local Polled = Calls(Servers) - Before
+
+	local Lane = Datastore.READ_BYTES
+	local PerMinute = Polled / MINUTES
+	Row("every server reading one key at boot", Boot, 0, string.format("%.1f reads per server, %.1f MB on one key", Boot / SERVERS, Boot * Bytes / 1048576))
+	Row(
+		`and every {Windows.AUTOSAVE}s for {MINUTES} minutes`,
+		Polled,
+		0,
+		string.format("%d reads and %.1f MB a minute on one key of %d bytes, lane %d MB, %s", PerMinute, PerMinute * Bytes / 1048576, Bytes, Lane / 1048576, if PerMinute * Bytes > Lane then "OVER" else "inside")
+	)
+
+	local Maps = Taken(T)
+	Before = Calls(Servers)
+	local Units = T.Service.Units
+	Bodies = {}
+	for _, Held in Servers do
+		table.insert(Bodies, function()
+			Held.Store:Peek("config", Windows.AUTOSAVE):Wait()
+		end)
+	end
+	T:Race(Bodies)
+	local CopiedBoot, BootUnits = Calls(Servers) - Before, T.Service.Units - Units
+
+	Before, Units = Calls(Servers), T.Service.Units
+	for _ = 1, Ticks do
+		for _, Held in Servers do
+			Held.Store:Peek("config", Windows.AUTOSAVE):Wait()
+		end
+		T:Advance(Windows.AUTOSAVE)
+	end
+	local CopiedPolled, PolledUnits = Calls(Servers) - Before, T.Service.Units - Units
+
+	Row("every server reading a copy of that key at boot", CopiedBoot, BootUnits, string.format("%.2f reads per server", CopiedBoot / SERVERS))
+	Row(`and every {Windows.AUTOSAVE}s for {MINUTES} minutes`, CopiedPolled, PolledUnits, string.format("%.1f reads and %.1f units per server per minute", CopiedPolled / SERVERS / MINUTES, PolledUnits / SERVERS / MINUTES))
+	Ceilings(T, Maps, MINUTES)
 end)
 
 Bench("mixed", function(T: Suite.Case)

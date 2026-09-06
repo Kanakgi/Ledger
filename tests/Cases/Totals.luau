@@ -33,6 +33,7 @@ local Reasons = Suite.Reasons
 local CACHE = Suite.Horizons.TALLY_CACHE
 local CLAIM = Suite.Horizons.TALLY_CLAIM
 local KEEP = Suite.Horizons.TALLY_KEEP
+local STALE = CACHE + Suite.Horizons.COPY_SLACK + 1
 local SHARDS = Shards.SHARDS
 local FIELD = "Coins"
 local RECENT_LIMIT = 256
@@ -54,11 +55,16 @@ local function Slot(Store: any, Name: string, Field: string?): string
 end
 
 local function Item(T: Case, Store: any, Name: string): any
-	return T.Service:GetHashMap(Shards.MAP):GetAsync(Slot(Store, Name))
+	local Held: any = T.Service:GetHashMap(Shards.MAP):GetAsync(Slot(Store, Name))
+	if type(Held) ~= "table" or type(Held.State) ~= "table" then
+		return nil
+	end
+	local State: any = Held.State
+	return { Sum = State.Sum, At = Held.At, Claimed = Held.Claimed }
 end
 
 local function Plant(T: Case, Store: any, Name: string, Value: any)
-	T.Service:GetHashMap(Shards.MAP):SetAsync(Slot(Store, Name), Value, KEEP)
+	T.Service:GetHashMap(Shards.MAP):SetAsync(Slot(Store, Name), { State = { Sum = Value.Sum }, At = Value.At, Claimed = Value.Claimed }, KEEP)
 end
 
 local function Passing(Inner: Engine.Map, Failing: (Method: string) -> boolean): Engine.Map
@@ -126,7 +132,7 @@ Cases.Case("a total is read from the shards once and then from the cache, on thi
 	T:Is("units a bump spends", Bumped, 0)
 	T:Is("the total read cold", First, 5)
 	T:Is("datastore reads on the cold total", Cold, SHARDS)
-	T:Is("units on the cold total, a read and a refill", ColdUnits, 3)
+	T:Is("units on the cold total, a read, a claim on the absent item and a refill", ColdUnits, MemoryStore.UNIT + MemoryStore.UPDATE_UNITS * 2)
 	T:Is("the total read warm", Second, 5)
 	T:Is("datastore reads on the warm total", Warm, 0)
 	T:Is("units on the warm total, none, since the sum it holds is younger than the window the item is trusted for", WarmUnits, 0)
@@ -147,7 +153,7 @@ Cases.Case("this server's own bumps show at once, and another server's show once
 	end)
 	local Theirs = B.Store:Total("pot", FIELD):Wait()
 
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 	local Refilled
 	local Refill = Reads(B.Store, function()
 		Refilled = B.Store:Total("pot", FIELD):Wait()
@@ -168,7 +174,7 @@ Cases.Case("while one server refills a stale sum the others answer it and read n
 	local C = T:Vault("nodeC")
 	A.Store:Total("pot", FIELD):Wait()
 	B.Store:Bump("pot", FIELD, 5):Wait()
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 
 	local Meanwhile, MeanwhileReads, MeanwhileUnits
 	local Spec = A:Fault(Fault.Reads():Only(SHARDS):Meddle(function()
@@ -186,7 +192,7 @@ Cases.Case("while one server refills a stale sum the others answer it and read n
 		end)
 	end)
 	local Straight = C.Store:Total("pot", FIELD):Wait()
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 	local After = C.Store:Total("pot", FIELD):Wait()
 
 	T:Is("the meddle fired on the last shard read", Spec.Fired, 1)
@@ -214,7 +220,7 @@ Cases.Case("a pot polled hard asks the map once a window, not once a poll", func
 	end)
 
 	local Asked = Units(T, function()
-		T:Advance(CACHE + 1)
+		T:Advance(STALE)
 		A.Store:Total("pot", FIELD):Wait()
 	end)
 
@@ -231,14 +237,14 @@ Cases.Case("a claim that ran out is taken again, and a live one is not", functio
 	local A = T:Vault("nodeA")
 	local Now = T:Now()
 
-	Plant(T, A.Store, "pot", { Sum = 7, At = Now - CACHE - 1, Claimed = Now - CLAIM - 1 })
+	Plant(T, A.Store, "pot", { Sum = 7, At = Now - STALE, Claimed = Now - CLAIM - 1 })
 	local Retaken
 	local RetakenReads = Reads(A.Store, function()
 		Retaken = A.Store:Total("pot", FIELD):Wait()
 	end)
 	local Written = Item(T, A.Store, "pot")
 
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 	Plant(T, A.Store, "pot", { Sum = 7, At = T:Now() - CACHE - 1, Claimed = T:Now() })
 	local Waited
 	local WaitedReads = Reads(A.Store, function()
@@ -256,7 +262,7 @@ end)
 Cases.Case("a refill keeps a newer sum that landed while it was reading", function(T: Case)
 	local A = T:Vault("nodeA")
 	A.Store:Total("pot", FIELD):Wait()
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 
 	local Spec = A:Fault(Fault.Reads():Only(SHARDS):Meddle(function()
 		Plant(T, A.Store, "pot", { Sum = 99, At = T:Now() + 1 })
@@ -337,7 +343,7 @@ Cases.Case("a store with no MemoryStore reads its shards once a window and says 
 	local Again = Reads(Store, function()
 		Second = Store:Total("pot", FIELD):Wait()
 	end)
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 	local Aged = Reads(Store, function()
 		Later = Store:Total("pot", FIELD):Wait()
 	end)
@@ -470,13 +476,13 @@ Cases.Case("a bump in the same second as another server's refill shows at the ne
 
 	A.Store:Bump("pot", FIELD, 5):Wait()
 	local OwnAtOnce = A.Store:Total("pot", FIELD):Wait()
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 	local Refilled = B.Store:Total("pot", FIELD):Wait()
 	local Theirs = A.Store:Total("pot", FIELD):Wait()
 
 	A.Store:Bump("pot", FIELD, 3):Wait()
 	local Lagging = A.Store:Total("pot", FIELD):Wait()
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 	local Caught = A.Store:Total("pot", FIELD):Wait()
 
 	T:Is("an own bump in the second of an own refill, at once", OwnAtOnce, 5)
@@ -512,7 +518,7 @@ Cases.Case("a total does not count a bump that the sum it read already counted",
 
 	A.Store:Bump("pot", FIELD, 100):Wait()
 	T:Is("the other server sums it", B.Store:Total("pot", FIELD, 0):Wait(), 100)
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 
 	local Stalled = B:Fault(Fault.Reads():OnKey(Tally.Shard("pot", 0)):Only(1):Stall(5))
 	T:Race({
@@ -543,7 +549,7 @@ Cases.Case("an own bump landing while another server reads the shards shows at o
 	T:Ok("this case needs nodeB off the last shard, so a read comes after its own", Mine < SHARDS - 1)
 	A.Store:Total("pot", FIELD):Wait()
 	B.Store:Total("pot", FIELD):Wait()
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 
 	local Landed = false
 	A:Fault(Fault.Reads():OnKey(Tally.Shard("pot", SHARDS - 1)):Only(1):Meddle(function()
@@ -552,7 +558,7 @@ Cases.Case("an own bump landing while another server reads the shards shows at o
 	end))
 	local Refilled = A.Store:Total("pot", FIELD):Wait()
 	local Own = B.Store:Total("pot", FIELD):Wait()
-	T:Advance(CACHE + 1)
+	T:Advance(STALE)
 	local Later = B.Store:Total("pot", FIELD):Wait()
 
 	T:Ok("the bump landed inside the refill", Landed)

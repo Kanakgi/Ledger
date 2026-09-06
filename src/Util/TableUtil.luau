@@ -6,9 +6,10 @@
 	TableUtil: Small helpers for tables.
 
 	Copying, comparing and freezing, deeply. FreezeDelta remembers what it has already frozen, so it
-	only walks the part of a state that changed.
+	only walks the part of a state that changed. HasBuffer says whether a buffer sits anywhere in
+	a value.
 
-	Return type: A table with Occupied, Count, Some, DeepEqual, DeepCopy, DeepFreeze and FreezeDelta.
+	Return type: A table with Occupied, Count, Some, DeepEqual, DeepCopy, DeepFreeze, FreezeDelta and HasBuffer.
 	Example usage:
 		local TableUtil = require("./TableUtil")
 		local Copy = TableUtil.DeepCopy(State)
@@ -101,6 +102,22 @@ local function DeepFreeze<T>(Value: T, Seen: { [any]: boolean }?): T
 	return Value
 end
 
+local function HasBuffer(Value: any): boolean
+	if type(Value) == "buffer" then
+		return true
+	end
+	if type(Value) ~= "table" then
+		return false
+	end
+
+	for _, Inner in Value do
+		if HasBuffer(Inner) then
+			return true
+		end
+	end
+	return false
+end
+
 local Ours: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 
 local function FreezeDelta<T>(Value: T): T
@@ -127,4 +144,5 @@ return table.freeze({
 	DeepCopy = DeepCopy,
 	DeepFreeze = DeepFreeze,
 	FreezeDelta = FreezeDelta,
+	HasBuffer = HasBuffer,
 })

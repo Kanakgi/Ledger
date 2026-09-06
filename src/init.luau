@@ -105,6 +105,7 @@ end
 
 local function Release()
 	for _, Held in Registry.Stores do
+		Held:Unfollowed()
 		for UserId, Entry in Held.Loaded do
 			Held.Loaded[UserId] = nil
 			Held.Wrapper.Scheduler.Cancel(Entry.Ticker)

@@ -13,7 +13,9 @@
 	evicted and retaken between two datastore calls is a schedule this reaches and a case does not.
 
 	After every schedule it asks the same three things. The money is whole. Nothing Ledger answered
-	yes was then lost. Ledger did not accuse itself.
+	yes was then lost. Ledger did not accuse itself. A schedule over a copied key asks two more. A
+	copy never shows a state the record never held and never goes backwards. Once the map's items
+	have run out, every server's copy is the fold of the record.
 
 	Return type: Nothing. It prints, and sets the exit code.
 	Example usage:
@@ -28,8 +30,11 @@ Engine.Install()
 local Suite = require("../tests/Suite")
 local Case = require("../tests/Suite/Case")
 local Bookings = require("../src/Core/Constants/Bookings")
+local Follows = require("../src/Core/Constants/Follows")
 local Shards = require("../src/Core/Constants/Shards")
+local Sizes = require("../src/Core/Constants/Sizes")
 local Transactions = require("../src/Core/Constants/Transactions")
+local Windows = require("../src/Core/Constants/Windows")
 
 local Fault = Suite.Fault
 
@@ -47,6 +52,7 @@ type Case = Suite.Case
 type World = {
 	Driver: Fixture,
 	Crosser: Fixture,
+	Seen: number?,
 }
 
 type Scenario = {
@@ -81,6 +87,61 @@ local function Money(T: Case, World: World): (number, string)
 	local Driver = World.Driver
 	local Total = Driver:Amount("a") + Driver:Amount("b") + Driver:Aside("a") + Driver:Aside("b")
 	return Total, `{Driver:Amount("a")} + {Driver:Amount("b")} + {Driver:Aside("a") + Driver:Aside("b")} set aside`
+end
+
+local COPIED = "k"
+local AGE = 30
+
+local function Copied(T: Case): World
+	local Driver, Crosser = T:Bank("nodeA"), T:Bank("nodeB")
+	Driver:Seed(COPIED, { Gold = START, Touches = 0 })
+	return { Driver = Driver, Crosser = Crosser }
+end
+
+local function Held(Held: Fixture): number?
+	local Copy = Held.Store.Copies[COPIED]
+	local State = if Copy ~= nil then Copy.State else nil
+	return if type(State) == "table" then State.Gold else nil
+end
+
+local function Copies(T: Case, World: World): (number, string)
+	local Truth = World.Driver:Amount(COPIED)
+	local Servers = { World.Driver, World.Crosser }
+	local Before: { number? } = {}
+	for Index, Server in Servers do
+		local Gold = Held(Server)
+		Before[Index] = Gold
+		if Gold ~= nil and (Gold < START or Gold > Truth) then
+			T:Fail(`server {Index}'s copy`, `holds {Gold}, which the record never held between {START} and {Truth}`)
+		end
+	end
+	local Seen = World.Seen
+	local After = Held(World.Driver)
+	if Seen ~= nil and After ~= nil and After < Seen then
+		T:Fail("the driver's copy", `went backwards from {Seen} to {After}`)
+	end
+
+	T:Advance(AGE + 1)
+	for Index, Server in Servers do
+		Server.Store:Peek(COPIED, AGE):Wait()
+		local Was, Now = Before[Index], Held(Server)
+		if Was ~= nil and Now ~= nil and Now < Was then
+			T:Fail(`server {Index}'s copy on its next read inside the window`, `went backwards from {Was} to {Now}`)
+		end
+	end
+
+	T:Advance(Windows.TALLY_KEEP + 1)
+	local Agreed = 0
+	local Said: { string } = {}
+	for _, Server in Servers do
+		local Gold = Server.Store:Peek(COPIED, AGE):Wait()
+		Gold = if type(Gold) == "table" then Gold.Gold else Gold
+		table.insert(Said, tostring(Gold))
+		if Gold == Truth then
+			Agreed += 1
+		end
+	end
+	return Agreed, `the record holds {Truth} and the copies answer {table.concat(Said, " and ")}`
 end
 
 local Scenarios: { Scenario } = {
@@ -170,6 +231,62 @@ local Scenarios: { Scenario } = {
 			return State.Stock + State.Sold, `{State.Stock} left and {State.Sold} sold`
 		end,
 	},
+	{
+		Name = "a cold copy crossed by an edit and a forced peek on the same key",
+		Aim = { "Data", "Copy" },
+		Expect = 2,
+		Build = Copied,
+		Drive = function(_T: Case, World: World)
+			World.Driver.Store:Peek(COPIED, AGE):Wait()
+		end,
+		Cross = function(_T: Case, World: World)
+			World.Crosser.Store:Edit(COPIED, "Fund", { Amount = 7 }):Wait()
+			World.Crosser.Store:Peek(COPIED, 0):Wait()
+		end,
+		Whole = Copies,
+	},
+	{
+		Name = "a stale copy's refill crossed by an edit and a forced peek",
+		Aim = { "Data", "Copy" },
+		Expect = 2,
+		Build = function(T: Case): World
+			local World = Copied(T)
+			World.Driver.Store:Peek(COPIED, AGE):Wait()
+			World.Crosser.Store:Peek(COPIED, AGE):Wait()
+			T:Advance(Windows.TALLY_CACHE + Windows.COPY_SLACK + 1)
+			return World
+		end,
+		Drive = function(_T: Case, World: World)
+			World.Driver.Store:Peek(COPIED, AGE):Wait()
+		end,
+		Cross = function(_T: Case, World: World)
+			World.Crosser.Store:Edit(COPIED, "Fund", { Amount = 7 }):Wait()
+			World.Crosser.Store:Peek(COPIED, 0):Wait()
+		end,
+		Whole = Copies,
+	},
+	{
+		Name = "an edit that compacts, crossed by a newer edit and the refill it makes, with the driver reading it between",
+		Aim = { "Data", "Copy" },
+		Expect = 2,
+		Build = function(T: Case): World
+			Sizes.Set({ Compact = 32 })
+			local World = Copied(T)
+			World.Driver.Store:Peek(COPIED, AGE):Wait()
+			T:Advance(Windows.TALLY_CLAIM + 1)
+			return World
+		end,
+		Drive = function(_T: Case, World: World)
+			World.Driver.Store:Edit(COPIED, "Fund", { Amount = 7 }):Wait()
+		end,
+		Cross = function(_T: Case, World: World)
+			World.Crosser.Store:Edit(COPIED, "Fund", { Amount = 11 }):Wait()
+			World.Crosser.Store:Peek(COPIED, 0):Wait()
+			World.Driver.Store:Peek(COPIED, 0):Wait()
+			World.Seen = Held(World.Driver)
+		end,
+		Whole = Copies,
+	},
 }
 
 local function Named(Held: Fixture, Aim: string): string
@@ -184,6 +301,9 @@ local function Named(Held: Fixture, Aim: string): string
 	end
 	if Aim == "Hold" then
 		return Bookings.MAP
+	end
+	if Aim == "Copy" then
+		return Follows.MAP
 	end
 	return Shards.MAP
 end

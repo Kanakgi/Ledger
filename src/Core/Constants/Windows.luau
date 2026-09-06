@@ -6,9 +6,11 @@
 	Windows: Every window Ledger keeps something for.
 
 	Every window is in seconds. How long a hold and the item it lives in last. How long a cached total
-	is trusted, and how long a lease on a transaction's keys lasts. The cap on one pass of background
-	work is here too. A window that follows from another is derived here, and asserts hold the order
-	they have to keep.
+	is trusted, and how long a lease on a transaction's keys lasts. How often a follower reads its
+	copy, the slowest it backs off to, and the most a copy may add to the window before it judges an
+	item stale, so a fleet does not judge one item stale in the same instant. The cap on one pass of
+	background work is here too. A window that follows from another is derived here, and asserts hold
+	the order they have to keep.
 
 	Return type: A table of the windows in seconds, the seconds in a day, and the cap on one pass.
 	Example usage:
@@ -40,6 +42,9 @@ local TALLY_KEEP = 10 * MINUTE
 local TX_LEASE = 10
 local PASS_LEASE = SWEEP
 local BREAKER = 2 * MINUTE
+local FOLLOW = AUTOSAVE
+local FOLLOW_CAP = 4 * MINUTE
+local COPY_SLACK = TALLY_CLAIM
 
 local TOMB = REDRIVE + EXPIRE_MARGIN
 local ONCE_MARGIN = REDRIVE
@@ -84,6 +89,12 @@ assert(
 	"a server that stopped calling a MemoryStore map has to try it again inside the window its own last total stays good for, or it answers a remembered sum it can no longer refresh"
 )
 assert(BREAKER > SWEEP, "a map that is not answering is left alone for longer than a sweep pass, or a pass pays a failed call on every key it follows")
+assert(FOLLOW > 0 and FOLLOW < FOLLOW_CAP, "a follower has to start faster than the slowest it may tick, or backing off would speed it up")
+assert(FOLLOW_CAP <= TALLY_KEEP, "a follower backed off to its slowest tick has to read the item before it runs out, or every tick past that is a cold miss")
+assert(
+	COPY_SLACK > 0 and TALLY_CACHE + COPY_SLACK + TALLY_CLAIM < TALLY_KEEP,
+	"a copy judged stale as late as its slack allows, and claimed for as long as a claim lasts, still has to find the item alive, or a late judge refills an item that was never there"
+)
 
 return table.freeze({
 	DAY = DAY,
@@ -106,6 +117,9 @@ return table.freeze({
 	TX_LEASE = TX_LEASE,
 	PASS_LEASE = PASS_LEASE,
 	BREAKER = BREAKER,
+	FOLLOW = FOLLOW,
+	FOLLOW_CAP = FOLLOW_CAP,
+	COPY_SLACK = COPY_SLACK,
 
 	TOMB = TOMB,
 	ONCE_MARGIN = ONCE_MARGIN,

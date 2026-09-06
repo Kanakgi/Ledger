@@ -319,6 +319,16 @@ function Store.Erase(self: Store, Key: KeyLike): Future<boolean, Reason?>
 		if Held ~= nil then
 			Held:RemoveAsync(Mark.Cached({ self.Wrapper.Name, Resolved }))
 		end
+		local Copier = self.Copier
+		if Copier ~= nil then
+			Copier:RemoveAsync(Mark.Cached({ self.Wrapper.Name, Resolved }))
+		end
+		local Copy = self.Copies[Resolved]
+		if Copy ~= nil then
+			Copy.State = nil
+			Copy.Stamp = nil
+			Copy.Seen = 0
+		end
 
 		if Before.Erased ~= nil and not Log.Entombed(Before) then
 			local Reached, Gone, Cause = pcall(function(): (boolean, any)

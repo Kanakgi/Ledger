@@ -28,11 +28,12 @@ export type Outcome = {
 	Before: Record,
 	After: Record,
 	Changed: boolean,
+	Stamp: number?,
 	Refused: Reason?,
 	Notes: { [string]: any },
 }
 
-export type Update = (Key: string, Apply: (Record) -> Record?) -> { Before: Record, After: Record, Changed: boolean }
+export type Update = (Key: string, Apply: (Record) -> Record?) -> { Before: Record, After: Record, Changed: boolean, Stamp: number? }
 
 local function Run(Update: Update, Key: string, List: { Rule }): Outcome
 	local Pass: Pass = Rules.New()
@@ -82,6 +83,7 @@ local function Run(Update: Update, Key: string, List: { Rule }): Outcome
 		Before = Result.Before,
 		After = Result.After,
 		Changed = Result.Changed,
+		Stamp = Result.Stamp,
 		Refused = Pass.Refused,
 		Notes = Pass.Notes,
 	}

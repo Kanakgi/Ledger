@@ -7,7 +7,8 @@
 
 	The folded state, the stored record, an old version and its history, and whether a name has been
 	applied. Every read answers a value and a reason, so nil always means the read failed and never
-	means empty. Inspect hands back a frozen copy.
+	means empty. Inspect hands back a frozen copy. A Peek with a MaxAge answers the copy of the key
+	this server holds while it is that young, and the shared copy after, with the game's fields only.
 
 	Return type: An empty table. It writes Peek, DidApply, History, PeekVersion and Inspect onto the class.
 	Example usage:
@@ -15,6 +16,7 @@
 		local State = self:Peek(1):Wait()
 --]=]
 
+local Clock = require("../../Util/Clock")
 local Future = require("../../Util/Future")
 local TableUtil = require("../../Util/TableUtil")
 local Shapes = require("../../Core/Shapes")
@@ -57,11 +59,25 @@ local function Followed(self: Store, Key: string): any
 	return State
 end
 
-function Store.Peek(self: Store, Key: KeyLike): Future<any?, Reason?>
+function Store.Peek(self: Store, Key: KeyLike, MaxAge: number?): Future<any?, Reason?>
 	local Resolved = self:Resolve(Key, "Peek")
+	if MaxAge == nil then
+		return Reading("read", Resolved, function(): any
+			return Followed(self, Resolved)
+		end)
+	end
 
-	return Reading("read", Resolved, function(): any
-		return Followed(self, Resolved)
+	assert(type(MaxAge) == "number" and MaxAge >= 0 and MaxAge < math.huge, `Peek MaxAge must be a number of seconds when given, got {tostring(MaxAge)}`)
+	assert(self.Keys == "String", `Peek with a MaxAge is for string keyed stores, '{self.Options.Name}' uses player keys`)
+	local Age = MaxAge
+
+	return Future.New(function(): (any?, Reason?)
+		local Now = Clock.Now()
+		local Copy = self:Copy(Resolved)
+		if Age > 0 and Copy.State ~= nil and Now - Copy.Seen <= Age then
+			return Copy.State, nil
+		end
+		return self:Copied(Copy, Now, Age == 0, self:Recorded(Resolved))
 	end)
 end
 

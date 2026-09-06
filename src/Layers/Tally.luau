@@ -9,13 +9,12 @@
 	single key knows it. Mine picks this server's shard and Shards names them all. The running total
 	lives in a field of Ledger's own rather than the game's.
 
-	Cache holds a summed total, judged by its own At and never by the item's expiry. While it is
-	stale, one server holds a short claim on refilling it and the rest answer the stale sum. The item
-	also carries the second each shard was read, so a server lays over the sum only the bumps it made
-	after its own shard was read. Down is when the map last missed on this tally. A server that
-	cannot reach the map answers the sum it already has.
+	Cache names the item a summed total lives in, which a store keeps fresh the way it keeps a copy
+	of any key. The state in that item carries the sum and the second each shard was read, so a
+	server lays over the sum only the bumps it made after its own shard was read. Since reads that
+	second back out.
 
-	Return type: A table with Layered, Bump, Counted, Mine, Shard, Keys, Cache, Read, Since, Fresh and Claimed. The types are Cached, Bucket and Recent.
+	Return type: A table with Layered, Bump, Counted, Mine, Shard, Keys, Cache and Since. The type is Bucket.
 	Example usage:
 		local Tally = require("./Tally")
 		local Key = Tally.Shard(Name, Tally.Mine())
@@ -27,36 +26,16 @@ local Mark = require("../Encode/Mark")
 local Validate = require("../Core/Validate")
 local Kinds = require("../Core/Constants/Kinds")
 local Shards = require("../Core/Constants/Shards")
-local Windows = require("../Core/Constants/Windows")
 local Layer = require("./Layer")
 local Shapes = require("../Core/Shapes")
 
 type Op = Shapes.Op
 type Data = Shapes.Folded
 
-export type Cached = {
-	Sum: number,
-	At: number,
-	Claimed: number?,
-	Read: { number }?,
-}
-
 export type Bucket = {
 	Seq: number,
 	At: number,
 	Amount: number,
-}
-
-export type Recent = {
-	Sum: number,
-	At: number,
-	Seen: number,
-	Floor: number?,
-	Down: number?,
-	Mark: number?,
-	OwnAt: number?,
-	OwnMark: number?,
-	Bumps: { Bucket },
 }
 
 local LastNode = ""
@@ -124,36 +103,18 @@ local function Cache(Store: string, Name: string, Field: string): string
 	return Mark.Cached({ Store, Name, Field })
 end
 
-local function Read(Value: any): Cached?
-	if type(Value) ~= "table" or type(Value.Sum) ~= "number" or type(Value.At) ~= "number" then
+local function Since(State: any, Shard: number): number?
+	if type(State) ~= "table" then
 		return nil
 	end
-	if Value.Claimed ~= nil and type(Value.Claimed) ~= "number" then
-		return nil
-	end
-	if Value.Read ~= nil and type(Value.Read) ~= "table" then
-		return nil
-	end
-	return Value
-end
 
-local function Since(Item: Cached, Shard: number): number?
-	local Read = Item.Read
-	if Read == nil then
+	local Read: any = State.Read
+	if type(Read) ~= "table" then
 		return nil
 	end
 
 	local At = Read[Shard + 1]
 	return if type(At) == "number" then At else nil
-end
-
-local function Fresh(Item: Cached, Now: number): boolean
-	return Now - Item.At <= Windows.TALLY_CACHE
-end
-
-local function Claimed(Item: Cached, Now: number): boolean
-	local At = Item.Claimed
-	return At ~= nil and Now - At <= Windows.TALLY_CLAIM
 end
 
 local Held: Layer.Layer = {
@@ -178,8 +139,5 @@ return table.freeze({
 	Shard = Shard,
 	Keys = Keys,
 	Cache = Cache,
-	Read = Read,
 	Since = Since,
-	Fresh = Fresh,
-	Claimed = Claimed,
 })

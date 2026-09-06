@@ -7,7 +7,9 @@
 
 	Read it, add ops to it, park a transaction leg on it, resolve one, bury it, compact it or trim it.
 	An append adds only the ops the record does not already have, so running one twice applies once.
-	Every write first asks whether this build may write the record at all.
+	Every write first asks whether this build may write the record at all. A read and a write that
+	changed the record hand back the stamp the datastore put on it, so a copy of the record can be
+	ordered against another without comparing two servers' clocks.
 
 	Return type: A table with New, Verdict, Entombed and NotEntombed.
 	Example usage:
@@ -116,6 +118,14 @@ local function Meant(Held: any, Wanted: any): boolean
 	return type(Held) ~= "string" or type(Wanted) ~= "string" or Held == Wanted
 end
 
+local function Stamped(Info: any): number?
+	if Info == nil then
+		return nil
+	end
+	local At = (Info :: any).UpdatedTime
+	return if type(At) == "number" then At else nil
+end
+
 local function Held(Record: Record, Format: Schema<any>, Hold: { any }): any
 	local Folded = Hold[1]
 	if Folded == nil then
@@ -195,7 +205,7 @@ function Log.Update(self: Log, Key: string, Change: Transform): Outcome
 	local Wrote = false
 	local Raised: any = nil
 
-	local Ok, Value = self.Wrapper:UpdateAsync(Key, function(Current: any): Record?
+	local Ok, Value, Info = self.Wrapper:UpdateAsync(Key, function(Current: any): Record?
 		Wrote = false
 		Raised = nil
 
@@ -225,15 +235,15 @@ function Log.Update(self: Log, Key: string, Change: Transform): Outcome
 	if Value == nil then
 		return { Before = Before, After = Before, Changed = false }
 	end
-	return { Before = Before, After = Materialize(Value), Changed = true }
+	return { Before = Before, After = Materialize(Value), Changed = true, Stamp = Stamped(Info) }
 end
 
-function Log.Read(self: Log, Key: string): Record
-	local Ok, Value = self.Wrapper:GetAsync(Key)
+function Log.Read(self: Log, Key: string): (Record, number?)
+	local Ok, Value, Info = self.Wrapper:GetAsync(Key)
 	if not Ok then
 		error(Value)
 	end
-	return Materialize(Value)
+	return Materialize(Value), Stamped(Info)
 end
 
 function Log.ReadVersion(self: Log, Key: string, Version: string): Record
@@ -244,7 +254,7 @@ function Log.ReadVersion(self: Log, Key: string, Version: string): Record
 	return Materialize(Value)
 end
 
-function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string }, { string })
+function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Rules.Sift?): (Record, { string }, { string }, number?)
 	local Owned = false
 	for _, Op in Ops do
 		assert(Op.Tx == nil, `op {Op.Id} carries a transaction stamp and is being appended to '{Key}' outside Prepare, so every fold would skip it`)
@@ -269,7 +279,7 @@ function Log.Append(self: Log, Key: string, Ops: { Op }, Guard: Allow?, Sift: Ru
 	)
 
 	local Turned, Waiting = Outcome.Notes.Turned, Outcome.Notes.Waiting
-	return Outcome.After, if type(Turned) == "table" then Turned else {}, if type(Waiting) == "table" then Waiting else {}
+	return Outcome.After, if type(Turned) == "table" then Turned else {}, if type(Waiting) == "table" then Waiting else {}, Outcome.Stamp
 end
 
 function Log.Entomb(self: Log, Key: string, At: number, Bury: ((Record) -> Record)?): Record

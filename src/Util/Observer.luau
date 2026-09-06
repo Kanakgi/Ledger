@@ -7,9 +7,10 @@
 
 	A listener runs the moment a value is pushed, so a listener must not yield. Map, Filter and
 	Changed each make a new stream from this one. Destroy marks every connection gone, and
-	disconnecting after that does nothing.
+	disconnecting after that does nothing. From makes a stream that starts its source on the first
+	subscriber and tears it down after the last one leaves.
 
-	Return type: A table with New, which gives you a subject that you can push to.
+	Return type: A table with New, which gives you a subject that you can push to, and From.
 	Example usage:
 		local Observer = require("./Observer")
 		local Stream = Observer.New()
@@ -158,6 +159,10 @@ local function New<T>(Detached: boolean?): Subject<T>
 	return Make(nil, Detached) :: any
 end
 
+local function From<T>(Activate: (Emit: (T) -> ()) -> (() -> ())?, Detached: boolean?): Observer<T>
+	return Make(Activate, Detached)
+end
+
 function Observer.Subscribe<T>(self: Observer<T>, Listener: (T) -> ()): Connection
 	local Private = ToPrivate(self)
 
@@ -260,4 +265,5 @@ table.freeze(Observer)
 
 return table.freeze({
 	New = New,
+	From = From,
 })

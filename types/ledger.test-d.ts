@@ -40,6 +40,8 @@ export type ReadAnswersTheState = Expect<Equal<ReturnType<Ledger.Store<Profile>[
 export type PeekAnswersAValueAndAReason = Expect<Equal<ReturnType<Ledger.Store<Profile>["Peek"]>, Ledger.Future<[Profile | undefined, Ledger.Reason | undefined]>>>;
 export type NumberKeysNamesTheNumbers = Expect<Equal<Ledger.NumberKeys<Profile>, "Gold">>;
 export type TotalTakesAnOptionalAge = Expect<Equal<Parameters<Ledger.Store<Profile>["Total"]>, [name: string, field: "Gold", maxAge?: number | undefined]>>;
+export type PeekTakesAnOptionalAge = Expect<Equal<Parameters<Ledger.Store<Profile>["Peek"]>, [key: Ledger.KeyLike, maxAge?: number | undefined]>>;
+export type FollowGivesTheState = Expect<Equal<ReturnType<Ledger.Store<Profile>["Follow"]>, Ledger.Observer<Profile>>>;
 export type OpenOpIsTheDefault = Expect<Equal<Ledger.Op, Ledger.OpenOp>>;
 export type OpOfNamesOneKind = Expect<Equal<Ledger.OpOf<Ops, "Buy">["Kind"], "Buy">>;
 export type OpUnionHasEveryKind = Expect<Equal<Ledger.Op<Ops>["Kind"], "Buy" | "Sell" | "AddGold" | "Ping">>;
@@ -181,6 +183,15 @@ export function Positives(): void {
 	bank.Stale().Subscribe((key) => {
 		const k: string = key;
 		void k;
+	});
+	const [copied, copiedWhy] = shop.Peek("config", 30).Wait();
+	const copy: Profile | undefined = copied;
+	const copyWhy: Ledger.Reason | undefined = copiedWhy;
+	void copy;
+	void copyWhy;
+	shop.Follow("config").Subscribe((config) => {
+		const gold: number = config.Gold;
+		void gold;
 	});
 
 	bank.Tx("trade:1", [

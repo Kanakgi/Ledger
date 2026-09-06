@@ -93,8 +93,9 @@ function Store.WatchHeld(self: Store, Key: string, State: any)
 	end
 end
 
-function Store.Append(self: Store, Key: string, Op: Op, Guard: Allow?): Record
-	return (self:Records():Append(Key, { Op }, Guard))
+function Store.Append(self: Store, Key: string, Op: Op, Guard: Allow?): (Record, number?)
+	local Stored, _, _, Stamp = self:Records():Append(Key, { Op }, Guard)
+	return Stored, Stamp
 end
 
 function Store.Swelling(self: Store, Key: string, Record: Record)
@@ -227,19 +228,19 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return not Swollen
 	end
 
-	local function Attempt(): (boolean, any)
-		return pcall(function(): Record
+	local function Attempt(): (boolean, any, number?)
+		return pcall(function(): (Record, number?)
 			return self:Append(Key, Op, Judge)
 		end)
 	end
 
-	local Landed, Result = Attempt()
+	local Landed, Result, Stamp = Attempt()
 	if not Landed and Errors.Reason(Result) == FULL then
 		local Packed = pcall(function()
 			self:Records():Compact(Key, self:Format())
 		end)
 		if Packed then
-			Landed, Result = Attempt()
+			Landed, Result, Stamp = Attempt()
 		end
 	end
 
@@ -280,14 +281,16 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return false, REFUSED
 	end
 
+	local Settled: Record? = nil
 	local Ok, Why = pcall(function(): Reason?
-		local Settled = self:Maintain(Key, Stored)
-		if not TxStamp.Holds(Settled, Op.Id) then
+		local Latest = self:Maintain(Key, Stored)
+		Settled = Latest
+		if not TxStamp.Holds(Latest, Op.Id) then
 			return UNRESOLVED
 		end
 
-		local Took, Sure = self:Format():Certain(Settled, Op.Id)
-		assert(Sure or TxStamp.HasPending(Settled), `the answer for {What} on '{Key}' is unsure while nothing is pending there, so a settled key is reporting doubt`)
+		local Took, Sure = self:Format():Certain(Latest, Op.Id)
+		assert(Sure or TxStamp.HasPending(Latest), `the answer for {What} on '{Key}' is unsure while nothing is pending there, so a settled key is reporting doubt`)
 		if not Sure then
 			return UNRESOLVED
 		end
@@ -295,7 +298,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 			return REFUSED
 		end
 		if Shows ~= nil then
-			return Shows(Settled)
+			return Shows(Latest)
 		end
 		return nil
 	end)
@@ -307,6 +310,9 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 
 	if Why == nil then
 		self:Went(Key)
+		if Settled ~= nil then
+			self:Noted(Key, Settled, Stamp)
+		end
 	end
 	return Why == nil, Why
 end

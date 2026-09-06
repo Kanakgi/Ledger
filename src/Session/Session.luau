@@ -93,7 +93,7 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 
 		local Active: Session<S> = setmetatable(Body :: any, Session) :: any
 		local Ok, Reason = pcall(function()
-			local Stored = Active:Settled(Records:Read(Key))
+			local Stored = Active:Settled((Records:Read(Key)))
 			Active.Fence = Rebuild.Fenced(Stored.Erased)
 			Rebuild.Rebuild(Active, Stored)
 		end)
@@ -206,7 +206,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 					break
 				end
 				Clock.Wait(Windows.POLL)
-				Stored = self:Settled(self.Log:Read(self.Key))
+				Stored = self:Settled((self.Log:Read(self.Key)))
 			end
 
 			local Blocked = TxStamp.HasPending(Stored)
@@ -248,7 +248,7 @@ function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 			local Pushed, Landed = Rebuild.Push(self)
 			Whole = Landed ~= false
 
-			local Stored = if Pushed ~= nil then Pushed else self.Log:Read(self.Key)
+			local Stored = if Pushed ~= nil then Pushed else (self.Log:Read(self.Key))
 			Rebuild.Rebuild(self, self:Settled(Stored))
 			self:Notify()
 		end)

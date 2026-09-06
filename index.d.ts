@@ -134,7 +134,8 @@ declare namespace Ledger {
 		Unload(player: Player): void;
 		IsLoaded(player: Player): boolean;
 		Read(player: Player): D | undefined;
-		Peek(key: KeyLike): Future<[D | undefined, Reason | undefined]>;
+		Peek(key: KeyLike, maxAge?: number): Future<[D | undefined, Reason | undefined]>;
+		Follow(key: KeyLike): Observer<D>;
 		Inspect(key: KeyLike): Future<[Record<D> | undefined, Reason | undefined]>;
 		DidApply(key: KeyLike, id: string): Future<[boolean | undefined, Reason | undefined]>;
 		History(key: KeyLike, limit?: number): Future<[ReadonlyArray<HistoryEntry> | undefined, Reason | undefined]>;

@@ -106,9 +106,10 @@ end
 
 local function Append<S>(self: Session<S>, Ops: { Op }): (Record, { string }, { string })
 	local Fence = self.Fence
-	return self.Log:Append(self.Key, Ops, function(Record: Record): boolean
+	local Stored, Turned, Waiting = self.Log:Append(self.Key, Ops, function(Record: Record): boolean
 		return Record.Erased == Fence or (not Rules.Entombed(Record) and Fenced(Fence) == nil)
 	end, Sifted(self))
+	return Stored, Turned, Waiting
 end
 
 local function Roomed<S>(self: Session<S>, Batch: { Op }): (Record, { string }, { string })

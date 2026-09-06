@@ -15,10 +15,10 @@
 
 	A total answers from the sum this server holds while that sum is younger than MaxAge. MaxAge is
 	one TALLY_CACHE unless the caller names another, and a MaxAge of zero always asks. Past that
-	window the server reads the cached item. One server claims the refill of a stale item and reads
-	the shards. The rest answer the stale sum. A map that misses holds the total to this server's own
-	sum. A server with no sum reads the shards when it can afford them, and answers Unresolved when
-	it cannot.
+	window the total is a copy like any followed key, with a source that sums the shards: one server
+	claims the refill of a stale item and reads them while the rest answer the stale sum, and a map
+	that misses holds the total to this server's own sum. What a total adds is the overlay of this
+	server's own bumps over whatever sum it answers.
 
 	A bump writes nothing to MemoryStore. This server lays its own bumps over the sum it answers, and
 	other servers see them at the next refill. A bump carries no name, so one that answers Unresolved
@@ -74,6 +74,8 @@ type MemoryStoreWrapper = MemoryStoreWrapper.MemoryStoreWrapper
 type Reserved = Types.Reserved
 type Dropped = Types.Dropped
 type Hold = Types.Hold
+type Recent = Types.Recent
+type Copy = Types.Copy
 type Holding = { Holds: { [string]: Hold }, Stock: { [string]: number } }
 
 local MAX_TRANSFER_ID = 64
@@ -93,7 +95,7 @@ local function Rejected(Why: Reason?): Future<boolean, Reason?>
 	return Future.Completed(false, Why)
 end
 
-local function Trimmed(Held: Tally.Recent, Now: number)
+local function Trimmed(Held: Recent, Now: number)
 	local Floor = Now - Windows.TALLY_KEEP
 	local Bumps = Held.Bumps
 	local Kept = 0
@@ -108,7 +110,7 @@ local function Trimmed(Held: Tally.Recent, Now: number)
 	end
 end
 
-local function Over(Held: Tally.Recent): number
+local function Over(Held: Recent): number
 	local Mark = Held.Mark
 	local Floor = Held.Floor or Held.At
 	local Sum = 0
@@ -120,7 +122,7 @@ local function Over(Held: Tally.Recent): number
 	return Sum
 end
 
-local function Bumped(Held: Tally.Recent, Seq: number, Now: number, Amount: number)
+local function Bumped(Held: Recent, Seq: number, Now: number, Amount: number)
 	local Bumps = Held.Bumps
 	local Last = Bumps[#Bumps]
 	local Mark = Held.Mark
@@ -131,7 +133,7 @@ local function Bumped(Held: Tally.Recent, Seq: number, Now: number, Amount: numb
 	table.insert(Bumps, { Seq = Seq, At = Now, Amount = Amount })
 end
 
-local function Remember(Held: Tally.Recent, Sum: number, At: number, Seen: number, Mark: number?, Floor: number?): number
+local function Remember(Held: Recent, Sum: number, At: number, Seen: number, Mark: number?, Floor: number?): number
 	Held.Sum = Sum
 	Held.At = At
 	Held.Seen = Seen
@@ -541,14 +543,14 @@ function Store.TallyName(self: Store, Name: any, Field: any, What: string): stri
 	return Name
 end
 
-function Store.Kept(self: Store, Slot: string, Now: number): Tally.Recent
+function Store.Kept(self: Store, Slot: string, Now: number): Recent
 	local Held = self.Recent:Get(Slot)
 	if Held ~= nil then
 		Trimmed(Held, Now)
 		return Held
 	end
 
-	local Fresh: Tally.Recent = { Sum = 0, At = 0, Seen = 0, Bumps = {} }
+	local Fresh: Recent = { Sum = 0, At = 0, Seen = 0, Slack = self.Wrapper.Scheduler.Roll() * Windows.COPY_SLACK, Behind = false, Bumps = {} }
 	return self.Recent:Put(Slot, Fresh)
 end
 
@@ -590,74 +592,44 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 			return Held.Sum + Over(Held), nil
 		end
 
-		local Tallies = self.Tallies
-		if Tallies ~= nil then
-			local Read, Value = Tallies:GetAsync(Slot)
-			Held.Down = if Read then Held.Down else Now
-
-			local Item = if Read then Tally.Read(Value) else nil
-			if Item ~= nil then
-				local Floor = Tally.Since(Item, Tally.Mine(self.Node))
-				if Tally.Fresh(Item, Now) or Tally.Claimed(Item, Now) then
-					Held.Down = nil
-					return Remember(Held, Item.Sum, Item.At, Now, nil, Floor), nil
-				end
-
-				local Won, Claim = Tallies:UpdateAsync(Slot, function(Current: any): any
-					local Stale = Tally.Read(Current)
-					if Stale == nil or Tally.Fresh(Stale, Now) or Tally.Claimed(Stale, Now) then
-						return nil
+		local Mine = Tally.Mine(self.Node)
+		local Mark: number? = nil
+		local Source: Types.Source = {
+			Key = Name,
+			Slot = Slot,
+			Map = self.Tallies,
+			Cost = Shards.SHARDS,
+			Fits = false,
+			Refill = function(_Copy: Copy): (any?, number?, Reason?)
+				local Own = Tally.Shard(Name, Mine)
+				local Counted = self.Bumped
+				local Sum = 0
+				local Read: { number } = table.create(Shards.SHARDS) :: { number }
+				for Index, Key in Tally.Keys(Name) do
+					Read[Index] = Clock.Now()
+					local Ok, State = pcall(function(): any
+						return self:Fold(self:ReadRecord(Key))
+					end)
+					if not Ok then
+						return nil, nil, Failed(`read a shard of '{Name}' for`, Key, State)
 					end
-					return { Sum = Stale.Sum, At = Stale.At, Read = Stale.Read, Claimed = Now }
-				end, Windows.TALLY_KEEP)
 
-				Held.Down = if Won then nil else Now
-				if not Won or Claim == nil then
-					return Remember(Held, Item.Sum, Item.At, Now, nil, Floor), nil
+					Sum += Tally.Counted(State, Field)
+					if Key == Own then
+						Counted = self.Bumped
+					end
 				end
-			end
-		end
 
-		if Held.Down ~= nil and Now - Held.Down <= Windows.TALLY_KEEP then
-			if Held.Seen > 0 and Now - Held.Seen <= Windows.TALLY_KEEP then
-				return Held.Sum + Over(Held), nil
-			end
-			if not self:Affords(Enum.DataStoreRequestType.GetAsync, Shards.SHARDS) then
-				return nil, UNRESOLVED
-			end
-		end
+				Mark = Counted
+				return { Sum = Sum, Read = Read }, nil, nil
+			end,
+		}
 
-		local Own = Tally.Shard(Name, Tally.Mine(self.Node))
-		local Mark = self.Bumped
-		local Sum = 0
-		local Read: { number } = table.create(Shards.SHARDS) :: { number }
-		for Index, Key in Tally.Keys(Name) do
-			Read[Index] = Clock.Now()
-			local Ok, State = pcall(function(): any
-				return self:Fold(self:ReadRecord(Key))
-			end)
-			if not Ok then
-				return nil, Failed(`read a shard of '{Name}' for`, Key, State)
-			end
-
-			Sum += Tally.Counted(State, Field)
-			if Key == Own then
-				Mark = self.Bumped
-			end
+		local State, Why = self:Copied(Held, Now, false, Source)
+		if type(State) ~= "table" or type(State.Sum) ~= "number" then
+			return nil, Why or UNRESOLVED
 		end
-
-		local Walked = Clock.Now()
-		if Tallies ~= nil then
-			local Wrote = Tallies:UpdateAsync(Slot, function(Current: any): any
-				local Newer = Tally.Read(Current)
-				if Newer ~= nil and Newer.At > Walked then
-					return nil
-				end
-				return { Sum = Sum, At = Walked, Read = Read }
-			end, Windows.TALLY_KEEP)
-			Held.Down = if Wrote then nil else Walked
-		end
-		return Remember(Held, Sum, Walked, Walked, Mark), nil
+		return Remember(Held, State.Sum, Held.At, Held.Seen, Mark, Tally.Since(State, Mine)), nil
 	end)
 end
 

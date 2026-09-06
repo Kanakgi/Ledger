@@ -107,29 +107,13 @@ end
 
 local Blobbed: { [any]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 
-local function AnyBuffer(Value: any): boolean
-	if type(Value) == "buffer" then
-		return true
-	end
-	if type(Value) ~= "table" then
-		return false
-	end
-
-	for _, Inner in Value do
-		if AnyBuffer(Inner) then
-			return true
-		end
-	end
-	return false
-end
-
 local Schema = {} :: Types.ShapeImpl<any>
 Schema.__index = Schema
 
 function Schema.New<S>(Reducer: Shapes.Reducer<S>, Initial: S, Migrations: { Migration }?, Handles: { [string]: boolean }?): Schema<S>
 	local Blobs = Blobbed[Initial :: any]
 	if Blobs == nil then
-		Blobs = AnyBuffer(Initial)
+		Blobs = TableUtil.HasBuffer(Initial)
 		Blobbed[Initial :: any] = Blobs
 	end
 

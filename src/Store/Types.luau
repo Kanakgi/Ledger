@@ -9,7 +9,7 @@
 	as the sweep sees it: six plain functions carrying no self, the same shape the scheduler and the
 	hook take.
 
-	Return type: An empty table. The types are Allow, Swept, Stranded, SweeperImpl, Sweeper, LoadedEntry, LoadPhase, Meter, Hold, Fields, StoreImpl and Store.
+	Return type: An empty table. The types are Allow, Swept, Stranded, SweeperImpl, Sweeper, LoadedEntry, LoadPhase, Meter, Hold, Copied, Copy, Recent, Source, Fields, StoreImpl and Store.
 	Example usage:
 		local Types = require("./Types")
 		type Store = Types.Store<D>
@@ -105,6 +105,7 @@ export type Meter = {
 	Said: number,
 	Unbooked: number,
 	Crowded: number,
+	Uncopied: number,
 }
 
 export type Hold = {
@@ -112,6 +113,56 @@ export type Hold = {
 	Amount: number,
 	Ends: number,
 	Gen: string?,
+}
+
+export type Copied = {
+	State: any?,
+	Stamp: number?,
+	At: number,
+	Claimed: number?,
+	Version: number?,
+	Floor: number?,
+}
+
+export type Copy = {
+	State: any?,
+	Stamp: number?,
+	At: number,
+	Seen: number,
+	Slack: number,
+	Down: number?,
+	Behind: boolean,
+	Emit: ((any) -> ())?,
+	Ticker: thread?,
+	Stream: Observer.Observer<any>?,
+}
+
+export type Recent = {
+	State: any?,
+	Stamp: number?,
+	At: number,
+	Seen: number,
+	Slack: number,
+	Down: number?,
+	Behind: boolean,
+	Emit: ((any) -> ())?,
+	Ticker: thread?,
+	Stream: Observer.Observer<any>?,
+	Sum: number,
+	Floor: number?,
+	Mark: number?,
+	OwnAt: number?,
+	OwnMark: number?,
+	Bumps: { Tally.Bucket },
+}
+
+export type Source = {
+	read Key: string,
+	read Slot: string,
+	read Map: MemoryStoreWrapper?,
+	read Cost: number,
+	read Fits: boolean,
+	read Refill: (Copy: Copy) -> (any?, number?, Reason?),
 }
 
 export type Fields<D> = {
@@ -122,7 +173,9 @@ export type Fields<D> = {
 	Tallies: MemoryStoreWrapper?,
 	Leases: MemoryStoreWrapper?,
 	Bookings: MemoryStoreWrapper?,
-	Recent: Lru.Lru<Tally.Recent>,
+	Copier: MemoryStoreWrapper?,
+	Copies: { [string]: Copy },
+	Recent: Lru.Lru<Recent>,
 	Bumped: number,
 	Initial: D,
 	Migrations: { Migration },
@@ -165,7 +218,7 @@ export type StoreImpl<D> = {
 	WatchHeld: (self: Store<D>, Key: string, State: any) -> (),
 	Stale: (self: Store<D>) -> Observer.Observer<string>,
 	Went: (self: Store<D>, Key: string) -> (),
-	Append: (self: Store<D>, Key: string, Op: Op, Guard: Allow?) -> Record,
+	Append: (self: Store<D>, Key: string, Op: Op, Guard: Allow?) -> (Record, number?),
 	Maintain: (self: Store<D>, Key: string, Record: Record) -> Record,
 	Applies: (self: Store<D>, Op: Op, Record: Record) -> (boolean, boolean, boolean),
 	Swollen: (self: Store<D>, Op: Op, Record: Record) -> boolean,
@@ -176,7 +229,7 @@ export type StoreImpl<D> = {
 	HeldOn: (self: Store<D>, Key: string) -> (boolean, any),
 	HandOver: (self: Store<D>, Key: string) -> (number, string),
 	TallyName: (self: Store<D>, Name: any, Field: any, What: string) -> string,
-	Kept: (self: Store<D>, Slot: string, Now: number) -> Tally.Recent,
+	Kept: (self: Store<D>, Slot: string, Now: number) -> Recent,
 	Unbooked: (self: Store<D>, What: string) -> (),
 	Crowded: (self: Store<D>, Key: string, Rid: string, Count: number) -> (),
 	Holding: (self: Store<D>, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?) -> (Reserved, number?, number, Hold?),
@@ -187,6 +240,15 @@ export type StoreImpl<D> = {
 	Repair: (self: Store<D>, Key: string) -> (boolean, boolean),
 	ReapMarkers: (self: Store<D>, Bounded: boolean?) -> number,
 	Buried: (self: Store<D>, Key: string, Replaced: Record) -> (),
+
+	Copy: (self: Store<D>, Key: string) -> Copy,
+	Recorded: (self: Store<D>, Key: string) -> Source,
+	Copied: (self: Store<D>, Copy: Copy, Now: number, Force: boolean, Source: Source) -> (any?, Reason?),
+	Degraded: (self: Store<D>, Copy: Copy, Now: number, Source: Source) -> (any?, Reason?),
+	Refilled: (self: Store<D>, Copy: Copy, Now: number, Source: Source, Minted: boolean?) -> (any?, Reason?),
+	Noted: (self: Store<D>, Key: string, Record: Record, Stamp: number?) -> (),
+	Uncopied: (self: Store<D>, Key: string, Bytes: number) -> (),
+	Unfollowed: (self: Store<D>) -> (),
 
 	Wake: (self: Store<D>, UserId: number, Active: Session<D>?) -> (),
 	PickUp: (self: Store<D>, Active: Session<D>, UserId: number) -> (),
@@ -201,7 +263,8 @@ export type StoreImpl<D> = {
 	IsLoaded: (self: Store<D>, Player: Player) -> boolean,
 	WaitForLoaded: (self: Store<D>, Player: Player) -> Session<D>?,
 	Read: (self: Store<D>, Player: Player) -> D?,
-	Peek: (self: Store<D>, Key: KeyLike) -> Future<D?, Reason?>,
+	Peek: (self: Store<D>, Key: KeyLike, MaxAge: number?) -> Future<D?, Reason?>,
+	Follow: (self: Store<D>, Key: KeyLike) -> Observer.Observer<D>,
 	Inspect: (self: Store<D>, Key: KeyLike) -> Future<Record?, Reason?>,
 	DidApply: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean?, Reason?>,
 	History: (self: Store<D>, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,

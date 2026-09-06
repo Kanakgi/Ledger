@@ -29,6 +29,7 @@ local Windows = require("../Core/Constants/Windows")
 local Reasons = require("../Core/Constants/Reasons")
 local Kinds = require("../Core/Constants/Kinds")
 local Bookings = require("../Core/Constants/Bookings")
+local Follows = require("../Core/Constants/Follows")
 local Shards = require("../Core/Constants/Shards")
 local Transactions = require("../Core/Constants/Transactions")
 local Shapes = require("../Core/Shapes")
@@ -51,6 +52,7 @@ require("./Shared")
 require("./Api/Read")
 require("./Api/Admin")
 require("./Api/Ops")
+require("./Api/Follow")
 
 type Future<T...> = Future.Future<T...>
 type Op = Shapes.Op
@@ -131,8 +133,11 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	local Tallies = if Cached then MemoryStoreWrapper.New(Shards.MAP, Turn, Hook) else nil
 	local Leases = if Cached then MemoryStoreWrapper.New(Transactions.LEASE_MAP, Turn, Hook) else nil
 	local Holds = if Cached then MemoryStoreWrapper.New(Bookings.MAP, Turn, Hook) else nil
+	local Copier = if Cached then MemoryStoreWrapper.New(Follows.MAP, Turn, Hook) else nil
 	if Tallies == nil then
-		warn(`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards, transactions on one key race rather than queue, and nothing can be reserved`)
+		warn(
+			`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards, a followed key is read from the datastore on every tick, transactions on one key race rather than queue, and nothing can be reserved`
+		)
 	end
 
 	local Layers: { Layer.Layer } = {}
@@ -157,6 +162,8 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Tallies = Tallies,
 		Leases = Leases,
 		Bookings = Holds,
+		Copier = Copier,
+		Copies = {},
 		Recent = Lru.New(RECENT_TALLIES),
 		Bumped = 0,
 		Initial = Initial,
@@ -173,7 +180,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Sweep = Registry.Sweep(),
 		Sweeping = nil,
 		Staleness = Observer.New(true) :: Observer.Subject<string>,
-		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0, Unbooked = 0, Crowded = 0 },
+		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0, Unbooked = 0, Crowded = 0, Uncopied = 0 },
 		Resume = nil,
 		Closed = false,
 	}
@@ -417,6 +424,7 @@ function Store.Destroy(self: Store)
 	Registry.Claimed[`{self.Options.Name}{TX_SUFFIX}`] = nil
 	self.Sweep:Forget(self:Swept())
 	self.Staleness:Destroy()
+	self:Unfollowed()
 
 	local Jobs: { Future<boolean, Reason?> } = {}
 	for UserId, Entry in self.Loaded do
