@@ -115,8 +115,8 @@ function Sweeper.Reap(self: Sweeper, Mine: number?)
 
 	local Lists = Held.TxBudget(Enum.DataStoreRequestType.ListAsync)
 	local Reads = Held.TxBudget(Enum.DataStoreRequestType.GetAsync)
-	local Shards = math.clamp(Lists // (Transactions.REAP_LISTS * Transactions.REAP_SHARE), 1, Transactions.SHARDS)
-	local Limit = math.clamp(Reads // Transactions.REAP_SHARE, 1, Transactions.REAP_LIMIT)
+	local Shards = math.clamp(Lists // (Transactions.REAP_LISTS * Windows.PASS_SHARE), 1, Transactions.SHARDS)
+	local Limit = math.clamp(Reads // Windows.PASS_SHARE, 1, Transactions.REAP_LIMIT)
 
 	Held.ReapMarkers(Shards, Limit)
 	self.Resume = At + 1
@@ -166,8 +166,12 @@ function Sweeper.Pass(self: Sweeper)
 		end
 		Degraded = Claim.Outcome == Transactions.UNKNOWN
 
+		local Writes = Entry.Store.Budget(Enum.DataStoreRequestType.UpdateAsync)
+		local Limit = math.clamp(Writes // Windows.PASS_SHARE, 1, Windows.PASS_LIMIT)
 		local Ok, Clean, Moved = pcall(function(): (boolean, boolean)
-			return Entry.Store.Repair(Entry.Key)
+			return Entry.Store.Repair(Entry.Key, function(): boolean
+				return Entry.Store.Affords(Enum.DataStoreRequestType.UpdateAsync, MIN_SWEEP_BUDGET)
+			end, Limit)
 		end)
 		if Claim.Outcome == Transactions.TAKEN and not Ok then
 			Claim.Release()

@@ -92,11 +92,14 @@ function Store.Swept(self: Store): Types.Swept
 		TxAffords = function(Kind: Enum.DataStoreRequestType, Floor: number): boolean
 			return self:TxAffords(Kind, Floor)
 		end,
+		Budget = function(Kind: Enum.DataStoreRequestType): number
+			return self.Wrapper:Budget(Kind)
+		end,
 		TxBudget = function(Kind: Enum.DataStoreRequestType): number
 			return self.TxWrapper:Budget(Kind)
 		end,
-		Repair = function(Key: string): (boolean, boolean)
-			return self:Repair(Key)
+		Repair = function(Key: string, Afford: (() -> boolean)?, Limit: number?): (boolean, boolean)
+			return self:Repair(Key, Afford, Limit)
 		end,
 		ReapMarkers = function(Shards: number?, Limit: number?): number
 			return self:ReapMarkers(Shards, Limit)

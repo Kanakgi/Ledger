@@ -279,11 +279,21 @@ function Store.PickUp(self: Store, Active: any, UserId: number)
 		return
 	end
 
+	local Writes = Enum.DataStoreRequestType.UpdateAsync
+	local Pass: Recovery.Pass = {
+		Limit = math.clamp(self.Wrapper:Budget(Writes) // Windows.PASS_SHARE, 1, Windows.PASS_LIMIT),
+		Afford = function(): boolean
+			return self:Affords(Writes, MIN_WRITE_BUDGET)
+		end,
+	}
 	local Records, Format = self:Records(), self:Format()
 	task.spawn(function()
-		local Ok, Reason = pcall(Recovery.Transfers, Records, Format, UserId, Held)
+		local Ok, Clean = pcall(Recovery.Transfers, Records, Format, UserId, Held, Pass)
 		if not Ok then
-			Write.Failed("pick up the unfinished transfers on", tostring(UserId), Reason)
+			Write.Failed("pick up the unfinished transfers on", tostring(UserId), Clean)
+		end
+		if not Ok or not Clean then
+			self.Sweep:Add(self:Swept(), tostring(UserId))
 		end
 	end)
 end

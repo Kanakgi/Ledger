@@ -52,7 +52,7 @@ local BEHIND = Reasons.Behind
 
 local Failed = Write.Failed
 
-function Store.Repair(self: Store, Key: string): (boolean, boolean)
+function Store.Repair(self: Store, Key: string, Afford: (() -> boolean)?, Limit: number?): (boolean, boolean)
 	local Record = Tx.Settle(self:Records(), self.TxWrapper, Key, self:ReadRecord(Key))
 	if TxStamp.HasPending(Record) then
 		return false, false
@@ -63,7 +63,7 @@ function Store.Repair(self: Store, Key: string): (boolean, boolean)
 		return true, false
 	end
 
-	return Recovery.Transfers(self:Records(), self:Format(), Key, Held)
+	return Recovery.Transfers(self:Records(), self:Format(), Key, Held, { Afford = Afford, Limit = Limit })
 end
 
 function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
@@ -181,7 +181,7 @@ function Store.HandOver(self: Store, Key: string): (number, string)
 	end
 
 	local Sent, Why = pcall(function()
-		Recovery.Transfers(self:Records(), self:Format(), Key, Held, true)
+		Recovery.Transfers(self:Records(), self:Format(), Key, Held, { Going = true })
 	end)
 	if not Sent then
 		warn(`Ledger: could not hand over the transfers set aside on '{Key}' before erasing it, they are counted below: {Why}`)

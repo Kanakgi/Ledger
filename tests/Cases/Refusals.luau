@@ -649,7 +649,7 @@ Cases.Case("the reap works its way round every store when it cannot afford them 
 			Store:Marker(Named, { Status = "Aborted", Total = 1, Gen = "one", Adopted = {} })
 		end
 		Store:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
-			return if Kind == Enum.DataStoreRequestType.ListAsync then Transactions.REAP_LISTS * Transactions.REAP_SHARE else 1000
+			return if Kind == Enum.DataStoreRequestType.ListAsync then Transactions.REAP_LISTS * Windows.PASS_SHARE else 1000
 		end)
 		Stores[Index] = Store
 	end
@@ -799,7 +799,8 @@ Cases.Case("the sweep keeps going while it is still clearing holds", function(T:
 	Store:Append("bulkA", Batch)
 
 	Store.Store:Peek("bulkA"):Wait()
-	for _ = 1, 12 do
+	local Bite = Store.Store.Wrapper:Budget(Enum.DataStoreRequestType.UpdateAsync) // Windows.PASS_SHARE
+	for _ = 1, math.ceil(Stranded / Bite) + 1 do
 		T:Sweep()
 	end
 

@@ -57,8 +57,9 @@ export type Swept = {
 	read Mark: (Key: string) -> string,
 	read Affords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	read TxAffords: (Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
+	read Budget: (Kind: Enum.DataStoreRequestType) -> number,
 	read TxBudget: (Kind: Enum.DataStoreRequestType) -> number,
-	read Repair: (Key: string) -> (boolean, boolean),
+	read Repair: (Key: string, Afford: (() -> boolean)?, Limit: number?) -> (boolean, boolean),
 	read ReapMarkers: (Shards: number?, Limit: number?) -> number,
 	read Claim: (Key: string, Ttl: number) -> Claimed,
 }
@@ -237,7 +238,7 @@ export type StoreImpl<D> = {
 	Dropped: (self: Store<D>, Slot: string, Rid: string, State: any) -> Dropped,
 	Leased: (self: Store<D>, Targets: { { Name: string, Key: string } }) -> ({ () -> () }, boolean),
 	Claim: (self: Store<D>, Key: string, Ttl: number) -> Claimed,
-	Repair: (self: Store<D>, Key: string) -> (boolean, boolean),
+	Repair: (self: Store<D>, Key: string, Afford: (() -> boolean)?, Limit: number?) -> (boolean, boolean),
 	ReapMarkers: (self: Store<D>, Shards: number?, Limit: number?) -> number,
 	Buried: (self: Store<D>, Key: string, Replaced: Record) -> (),
 

@@ -27,6 +27,12 @@ type Op = Shapes.Op
 type Log = LogTypes.Log
 type Format = LogTypes.Shape<any>
 
+export type Pass = {
+	Going: boolean?,
+	Afford: (() -> boolean)?,
+	Limit: number?,
+}
+
 local PASS_LIMIT = Windows.PASS_LIMIT
 
 local function Expire(Records: Log, Format: Format, From: number | string, Tid: string, Entry: any, Age: number?)
@@ -69,13 +75,18 @@ local function GiveBack(Records: Log, Format: Format, From: number | string, Tid
 	return Ok
 end
 
-local function Transfers(Records: Log, Format: Format, From: number | string, Held: any, Going: boolean?): (boolean, boolean)
+local function Transfers(Records: Log, Format: Format, From: number | string, Held: any, Options: Pass?): (boolean, boolean)
 	if type(Held) ~= "table" then
 		return true, false
 	end
 
+	local Asked: Pass = Options or {}
+	local Going = Asked.Going
+	local Afford = Asked.Afford
+	local Room = math.clamp(Asked.Limit or PASS_LIMIT, 1, PASS_LIMIT)
+
 	local Now = Clock.Now()
-	local Failures, Handled, Waiting, Moved, Resting = 0, 0, 0, 0, 0
+	local Failures, Handled, Waiting, Starved, Moved, Resting = 0, 0, 0, 0, 0, 0
 
 	for Tid, Entry in Held do
 		if type(Entry) ~= "table" then
@@ -90,8 +101,12 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 			continue
 		end
 
-		if Handled >= PASS_LIMIT then
+		if Handled >= Room then
 			Waiting += 1
+			continue
+		end
+		if Afford ~= nil and not Afford() then
+			Starved += 1
 			continue
 		end
 		Handled += 1
@@ -105,10 +120,10 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 	end
 
 	if Waiting > 0 then
-		warn(`Ledger: {From} has more than {PASS_LIMIT} unfinished transfers, so {Waiting} of them wait for the next recovery`)
+		warn(`Ledger: {From} has more unfinished transfers than one pass takes, so {Waiting} of them wait for the next recovery`)
 	end
 
-	return Failures == 0 and Waiting == 0 and Resting == 0, Moved > 0 or Resting > 0
+	return Failures == 0 and Waiting == 0 and Starved == 0 and Resting == 0, Moved > 0 or Resting > 0
 end
 
 return table.freeze({

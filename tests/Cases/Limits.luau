@@ -375,7 +375,7 @@ end)
 Cases.Case("the sweep sizes the shards a reap pass walks from the list lane", function(T: Case)
 	local Bank = T:Bank()
 	local Lists = Listing(Bank)
-	local Lane = Transactions.REAP_LISTS * Transactions.REAP_SHARE * 5
+	local Lane = Transactions.REAP_LISTS * Windows.PASS_SHARE * 5
 
 	Lanes(Bank, Lane, 1000)
 	T:Sweep()
@@ -394,11 +394,67 @@ Cases.Case("the sweep sizes what a reap pass may take from the read lane", funct
 		Bank:Marker(`take{Index}`, { Status = "Aborted", Total = 1, Gen = "one", Adopted = {} })
 	end
 	T:Advance(Windows.REAP + 60)
-	Lanes(Bank, 1000, Transactions.REAP_SHARE * 10)
+	Lanes(Bank, 1000, Windows.PASS_SHARE * 10)
 
 	T:Sweep()
 
 	T:Is("husks left after a pass allowed a quarter of forty reads", #Bank:Marks(), 30)
+end)
+
+local function Stranded(Store: Fixture, Key: string, To: string, Count: number, Now: number)
+	local Ops: { any } = table.create(Count)
+	for Index = 1, Count do
+		Ops[Index] = { Id = `res:lane{Index}`, Kind = "__TransferReserve", To = To, Amount = 1, Tid = `lane{Index}`, At = Now }
+	end
+	Store:Append(Key, Ops)
+end
+
+Cases.Case("a sweep repair takes a share of the write lane and leaves the rest for the next pass", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("a", { Gold = 100, Touches = 0 })
+	Bank:Seed("b", { Gold = 0, Touches = 0 })
+	Stranded(Bank, "a", "b", 32, T:Now())
+	Sweep:Add(Bank.Store:Swept(), "a")
+
+	local Writes = Enum.DataStoreRequestType.UpdateAsync
+	T.Service.Throttled = true
+	local Bite = Bank.Store.Wrapper:Budget(Writes) // Windows.PASS_SHARE
+	local Start = T:Now()
+
+	T:Sweep()
+	local Left, Lane, Took = Bank:Aside("a"), Bank.Store.Wrapper:Budget(Writes), T:Now() - Start
+	for _ = 1, 2 do
+		T:Advance(Windows.SWEEP)
+		T:Sweep()
+	end
+
+	T:Is("holds left after one pass, the share taken", Left, 32 - Bite)
+	T:Ok("the lane the pass left, at least the sweep's floor", Lane >= 8)
+	T:Is("seconds the pass waited on the lane", Took, 0)
+	T:Is("holds left after three passes", Bank:Aside("a"), 0)
+	T:Is("gold delivered", Bank:Amount("b"), 32)
+end)
+
+Cases.Case("a session load takes a share of the write lane for the transfers it picks up and hands the rest to the sweep", function(T: Case)
+	local Store = T:Store({ Keys = "Player", Default = Suite.Reducers.MONEY, Reducer = Suite.Reducers.Banker, Balance = "Gold" })
+	Store:Seed("1", { Gold = 100, Touches = 0 })
+	Store:Seed("2", { Gold = 0, Touches = 0 })
+	Stranded(Store, "1", "2", 32, T:Now())
+
+	local Writes = Enum.DataStoreRequestType.UpdateAsync
+	T.Service.Throttled = true
+	local Bite = Store.Store.Wrapper:Budget(Writes) // Windows.PASS_SHARE
+	local Before = Store.Store.Wrapper.Spent
+	local Start = T:Now()
+
+	Store.Store:Load(T:Player(1))
+	T:Until(function(): boolean
+		return Store:Aside("1") <= 32 - Bite or T:Now() - Start > 20
+	end)
+
+	T:Is("holds left after the load, the share taken", Store:Aside("1"), 32 - Bite)
+	T:Is("record store calls the load spent, one read and two writes a hold", Store.Store.Wrapper.Spent - Before, 1 + 2 * Bite)
+	T:Ok("the sweep follows the key for the rest", Sweep.Entries[Store.Store:Mark("1")] ~= nil)
 end)
 
 Cases.Case("a pass that walks one shard takes looks up to its whole room", function(T: Case)

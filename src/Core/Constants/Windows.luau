@@ -54,6 +54,7 @@ local ONCE_FLOOR = PRUNE - ONCE_MARGIN
 local TX = LEG * 2
 
 local PASS_LIMIT = 32
+local PASS_SHARE = 4
 
 assert(TOMB < PRUNE, "a delivery id has to outlive the tomb of the key it was delivered to, or a refund could pay twice")
 assert(BOOK + BOOK_MARGIN < REDRIVE, "a reservation has to run out before a transfer does, or stock would be held longer than money")
@@ -132,4 +133,5 @@ return table.freeze({
 	TX = TX,
 
 	PASS_LIMIT = PASS_LIMIT,
+	PASS_SHARE = PASS_SHARE,
 })
