@@ -537,7 +537,7 @@ you don't have to plan around.
 ## 5.1.1 [#511]
 
 ```diff
-- The assert that refused a Once on Confirm. A named confirm replayed after the key has forgotten its op answers Refused
+- Removed an old assert
 - A reap pass that listed all 32 shards at once and ran a small server out of list budget. The sweep sizes a reap pass from the list budget now, one shard on a small server
 ```
 
