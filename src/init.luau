@@ -27,6 +27,7 @@ local Shapes = require("@self/Core/Shapes")
 local Api = require("@self/Core/Api")
 local Reasons = require("@self/Core/Constants/Reasons")
 local TypeFunctions = require("@self/Core/TypeFunctions")
+local Ids = require("@self/Encode/Ids")
 local Tx = require("@self/Protocol/Tx")
 local Registry = require("@self/Store/Registry")
 local Store = require("@self/Store/Store")
@@ -58,6 +59,7 @@ export type Export = {
 
 	read New: <D>(Options: Config<D>) -> Store<D>,
 	read NewTyped: <D, O>(Options: TypedConfig<D, O>) -> TypedStore<D, O>,
+	read Id: () -> string,
 	read Sweep: () -> (),
 	read CloseAll: () -> (),
 }
@@ -106,6 +108,7 @@ end
 local function Release()
 	for _, Held in Registry.Stores do
 		Held:Unfollowed()
+		Held:Flushed()
 		for UserId, Entry in Held.Loaded do
 			Held.Loaded[UserId] = nil
 			Held.Wrapper.Scheduler.Cancel(Entry.Ticker)
@@ -143,6 +146,7 @@ return table.freeze({
 
 	New = New,
 	NewTyped = NewTyped,
+	Id = Ids.Fresh,
 	Sweep = Sweep,
 	CloseAll = CloseAll,
 }) :: Export

@@ -176,8 +176,8 @@ The set of methods is closed. To be sure a method exists before recommending it:
 grep -oE "^\s+[A-Za-z]+: \(self: any" src/Core/Api.luau | grep -oE "[A-Za-z]+" | grep -v "self\|any" | sort -u
 ```
 
-That prints every method on a store and on a session, and nothing else. Checked on 2026-09-06 it
-prints 35 names. Anything not in there does not exist, however plausible it sounds.
+That prints every method on a store and on a session, and nothing else. Checked on 2026-09-07 it
+prints 36 names. Anything not in there does not exist, however plausible it sounds.
 
 ## Checking what touches what
 

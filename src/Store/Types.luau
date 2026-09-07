@@ -157,6 +157,21 @@ export type Recent = {
 	Bumps: { Tally.Bucket },
 }
 
+export type Queued = {
+	Name: string,
+	Field: string,
+	Amount: number,
+	Answer: Future<boolean, Reason?>,
+	Threads: { thread },
+}
+
+export type Batched = {
+	Every: number,
+	Queued: { [string]: Queued },
+	Flushing: { [string]: number },
+	Ticker: thread?,
+}
+
 export type Source = {
 	read Key: string,
 	read Slot: string,
@@ -181,6 +196,8 @@ export type Fields<D> = {
 	Initial: D,
 	Migrations: { Migration },
 	Handles: { [string]: boolean },
+	Shards: number,
+	Bumps: Batched?,
 	Books: LogTypes.Log?,
 	Shaped: LogTypes.Shape<D>?,
 	Keys: KeysMode,
@@ -271,8 +288,10 @@ export type StoreImpl<D> = {
 	History: (self: Store<D>, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,
 	PeekVersion: (self: Store<D>, Key: KeyLike, Version: string) -> Future<D?, Reason?>,
 	Edit: (self: Store<D>, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
+	EditOp: (self: Store<D>, Key: KeyLike, Op: Op) -> Future<boolean, Reason?>,
 	Transfer: (self: Store<D>, From: KeyLike, To: KeyLike, Amount: number, Id: string?, Field: string?) -> Future<boolean, Reason?>,
 	Bump: (self: Store<D>, Name: string, Field: string, Amount: number) -> Future<boolean, Reason?>,
+	Flushed: (self: Store<D>) -> (),
 	Total: (self: Store<D>, Name: string, Field: string, MaxAge: number?) -> Future<number?, Reason?>,
 	Reserve: (self: Store<D>, Key: KeyLike, Field: string, Amount: number, Id: string, Options: HoldOptions?) -> Future<boolean, Reason?>,
 	Confirm: (self: Store<D>, Key: KeyLike, Id: string, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,

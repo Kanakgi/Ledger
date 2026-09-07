@@ -16,6 +16,7 @@
 
 return table.freeze({
 	SHARDS = 16,
+	MOST = 99,
 	PART = "#",
 	FIELD = "_Tally",
 	MAP = "Ledger_Tally",

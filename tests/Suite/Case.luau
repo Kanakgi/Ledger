@@ -64,6 +64,8 @@ export type Spec = {
 	Field: string?,
 	Migrations: { any }?,
 	OnLoadFailed: any?,
+	Shards: number?,
+	BumpEvery: number?,
 	Data: string?,
 	Node: string?,
 }
@@ -328,6 +330,8 @@ function Case.Store(self: Case, Held: Spec): Fixture.Fixture
 		Reducer = Held.Reducer or Reducers.Banker,
 		Migrations = Held.Migrations,
 		OnLoadFailed = Held.OnLoadFailed,
+		Shards = Held.Shards,
+		BumpEvery = Held.BumpEvery,
 	})
 
 	Built.Wrapper = Wrapper.New(Data, Turn, Hook)

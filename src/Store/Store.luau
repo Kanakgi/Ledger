@@ -123,6 +123,25 @@ local function Probed(Name: string, Reducer: Shapes.Reducer<any>, Initial: any)
 	warn(`Ledger: the reducer for '{Name}' gave back a state for a kind it does not know. give back nil for a kind you do not handle`)
 end
 
+local function Batching(Every: number?): Types.Batched?
+	if Every == nil then
+		return nil
+	end
+	return { Every = Every, Queued = {}, Flushing = {}, Ticker = nil }
+end
+
+local function Ticking(Built: Store)
+	local Bumps = Built.Bumps
+	if Bumps == nil then
+		return
+	end
+
+	local Turn = Built.Wrapper.Scheduler
+	Bumps.Ticker = SetInterval(Turn, Bumps.Every, function()
+		Built:Flushed()
+	end, Turn.Roll() * Bumps.Every)
+end
+
 local function New<D>(Config: Config<D>): Api.Store<D>
 	local Marked = `{Config.Name}{TX_SUFFIX}`
 	assert(not Registry.Claimed[Config.Name] and not Registry.Claimed[Marked], `a store named '{Config.Name}' already exists in this server`)
@@ -179,6 +198,8 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Initial = Initial,
 		Migrations = Steps,
 		Handles = Handled,
+		Shards = Config.Shards or Shards.SHARDS,
+		Bumps = Batching(Config.BumpEvery),
 		Books = nil,
 		Shaped = nil,
 		Keys = Keys,
@@ -198,6 +219,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 
 	table.insert(Registry.Stores, Built)
 	Built.Sweep:Adopt(Built:Swept())
+	Ticking(Built)
 	return Built
 end
 
@@ -445,6 +467,13 @@ function Store.Destroy(self: Store)
 	self.Sweep:Forget(self:Swept())
 	self.Staleness:Destroy()
 	self:Unfollowed()
+
+	local Bumps = self.Bumps
+	if Bumps ~= nil and Bumps.Ticker ~= nil then
+		self.Wrapper.Scheduler.Cancel(Bumps.Ticker)
+		Bumps.Ticker = nil
+	end
+	self:Flushed()
 
 	local Jobs: { Future<boolean, Reason?> } = {}
 	for UserId, Entry in self.Loaded do

@@ -18,7 +18,9 @@
 local Storable = require("../Encode/Storable")
 local Api = require("../Core/Api")
 local Datastore = require("../Core/Constants/Datastore")
+local Shards = require("../Core/Constants/Shards")
 local Transactions = require("../Core/Constants/Transactions")
+local Windows = require("../Core/Constants/Windows")
 
 type Config<D> = Api.Config<D>
 
@@ -46,6 +48,16 @@ local function Named<D>(Options: Config<D>)
 	assert(type(Options.Reducer) == "function", "New needs Reducer, a (State, Op) -> State? function")
 	assert(type(Options.Default) == "table", "New needs Default, the fresh state table")
 	assert(Options.Keys == nil or Options.Keys == "Player" or Options.Keys == "String", `Keys must be "Player" or "String"`)
+	local Count = Options.Shards
+	assert(
+		Count == nil or (type(Count) == "number" and Count == Count // 1 and Count >= 1 and Count <= Shards.MOST),
+		`Shards must be a whole number of tally shards from 1 to {Shards.MOST} when you pass one, got {tostring(Count)}`
+	)
+	local Every = Options.BumpEvery
+	assert(
+		Every == nil or (type(Every) == "number" and Every > 0 and Every <= Windows.TALLY_CACHE),
+		`BumpEvery must be a number of seconds above 0 and at most {Windows.TALLY_CACHE} when you pass one, got {tostring(Every)}`
+	)
 	assert(
 		Options.Mock == nil or type(Options.Mock) == "boolean" or type(Options.Mock) == "table",
 		"Mock must be true or false, or a table of Players, CCU and Throttled, and it puts this store on a fake datastore"

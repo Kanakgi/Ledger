@@ -20,7 +20,9 @@ interface Ops {
 declare const player: Player;
 declare const DataStoreService: DataStoreService;
 
-export type FiveEntries = Expect<Equal<keyof typeof Ledger, "Reason" | "New" | "NewTyped" | "Sweep" | "CloseAll">>;
+export type SixEntries = Expect<Equal<keyof typeof Ledger, "Reason" | "New" | "NewTyped" | "Id" | "Sweep" | "CloseAll">>;
+export type IdIsDotCalled = Expect<Equal<ThisParameterType<typeof Ledger.Id>, void>>;
+export type IdIsAString = Expect<Equal<ReturnType<typeof Ledger.Id>, string>>;
 export type ReasonNamesEveryReason = Expect<Equal<keyof typeof Ledger.Reason, Ledger.Reason>>;
 export type ReasonIsItself = Expect<Equal<(typeof Ledger.Reason)["Busy"], "Busy">>;
 
@@ -132,6 +134,7 @@ export function Positives(): void {
 	session.Commit("Sell", { Item: "Sword" }).Wait();
 	session.CommitOp({ Id: "op-1", Kind: "Buy", Item: "Shield", Once: "receipt:1" });
 	shop.Edit(1, "AddGold", { Amount: 5 }).Wait();
+	shop.EditOp(1, { Id: Ledger.Id(), Kind: "Buy", Item: "Shield" });
 	shop.Reserve(1, "Gold", 5, "cart:1", { Hold: 60 });
 	shop.Confirm(1, "cart:1", "Buy", { Item: "Sword" });
 	shop.Release(1, "cart:1");
@@ -148,6 +151,7 @@ export function Positives(): void {
 	open.Commit("ProductGrant", { ProductId: 1, Once: "receipt:1" });
 	open.CommitOp({ Id: "op-2", Kind: "AddGold", Amount: 5 });
 	bank.Edit("42", "AddGold", { Amount: 5 });
+	bank.EditOp("42", { Id: "op-4", Kind: "AddGold", Amount: 5 });
 	bank.Confirm("42", "cart:2", "AddGold", { Amount: 1 });
 	bank.Confirm("42", "cart:3", "Ping");
 
@@ -233,6 +237,8 @@ export function Negatives(): void {
 	session.Apply("Buy", { Item: "Sword", Once: 5 });
 	// @ts-expect-error a committed op names a kind the store has
 	session.CommitOp({ Id: "op-1", Kind: "Byu", Item: "Sword" });
+	// @ts-expect-error an edited op names a kind the store has
+	shop.EditOp(1, { Id: "op-5", Kind: "Byu", Item: "Sword" });
 
 	// @ts-expect-error Kind belongs to Ledger on an open store too
 	open.Apply("AddGold", { Kind: "Sell" });
@@ -259,6 +265,10 @@ export function Negatives(): void {
 	Ledger.New<Profile>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Keys: "Players" });
 	// @ts-expect-error a migration step gives back a state, not a number
 	Ledger.New<Profile>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Migrations: [() => 5] });
+	// @ts-expect-error Shards is a count
+	Ledger.New<Profile>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Shards: "16" });
+	// @ts-expect-error BumpEvery is a number of seconds
+	Ledger.New<Profile>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, BumpEvery: "30" });
 	// @ts-expect-error a kind has to name its fields as an object
 	Ledger.NewTyped<Profile, { Buy: string }>({ Name: "Wrong", Default: { Gold: 0, Items: {} }, Reducer: (state) => state });
 	// @ts-expect-error Mock takes Players, CCU and Throttled

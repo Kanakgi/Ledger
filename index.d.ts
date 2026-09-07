@@ -160,6 +160,7 @@ declare namespace Ledger {
 		Expect(player: Player): Session<D>;
 		WaitForLoaded(player: Player): Session<D> | undefined;
 		Edit<F extends object>(key: KeyLike, kind: string, fields?: Fields<F>): Future<[boolean, Reason | undefined]>;
+		EditOp(key: KeyLike, op: Op): Future<[boolean, Reason | undefined]>;
 		Confirm<F extends object>(key: KeyLike, id: string, kind: string, fields?: Fields<F>): Future<[boolean, Reason | undefined]>;
 		Tx(id: string, legs: ReadonlyArray<TxLeg>): Future<[boolean, Reason | undefined]>;
 	}
@@ -169,6 +170,7 @@ declare namespace Ledger {
 		Expect(player: Player): TypedSession<D, O>;
 		WaitForLoaded(player: Player): TypedSession<D, O> | undefined;
 		Edit<K extends keyof O & string>(key: KeyLike, kind: K, fields: Fields<O[K]>): Future<[boolean, Reason | undefined]>;
+		EditOp(key: KeyLike, op: Op<O>): Future<[boolean, Reason | undefined]>;
 		Confirm<K extends keyof O & string>(key: KeyLike, id: string, kind: K, fields: Fields<O[K]>): Future<[boolean, Reason | undefined]>;
 		Tx(id: string, legs: ReadonlyArray<TxLeg>): Future<[boolean, Reason | undefined]>;
 	}
@@ -179,6 +181,8 @@ declare namespace Ledger {
 		readonly Balance?: NumberKeys<D>;
 		readonly Migrations?: ReadonlyArray<Migration>;
 		readonly Keys?: KeysMode;
+		readonly Shards?: number;
+		readonly BumpEvery?: number;
 		readonly OnLoadFailed?: (this: void, player: Player, why: Reason) => boolean;
 		readonly Hook?: Hook;
 		readonly Mock?: boolean | Mocked;
@@ -196,6 +200,7 @@ declare namespace Ledger {
 		readonly Reason: { readonly [R in Reason]: R };
 		readonly New: <D extends object>(this: void, options: Config<D>) => Store<D>;
 		readonly NewTyped: <D extends object, O extends OpMap<O>>(this: void, options: TypedConfig<D, O>) => TypedStore<D, O>;
+		readonly Id: (this: void) => string;
 		readonly Sweep: (this: void) => void;
 		readonly CloseAll: (this: void) => void;
 	}

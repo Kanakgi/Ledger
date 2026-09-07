@@ -52,8 +52,9 @@ it enrols the key in the sweep when it finds work.
 
 `Apply` queues an op and writes nothing until the next save, so its answer is this server's opinion
 and not a settled fact. Everything else in this group writes when it answers: `Commit`, `CommitOp`,
-`Flush`, `Compact`, `Edit`, `Bump`, `Confirm`, `Transfer`, `Tx`, `Resettle`, `RecoverTransfers`,
-`ClearDelivered`, `Unload`, `Session:Release`, and `Ledger.Sweep`.
+`Flush`, `Compact`, `Edit`, `EditOp`, `Bump`, `Confirm`, `Transfer`, `Tx`, `Resettle`,
+`RecoverTransfers`, `ClearDelivered`, `Unload`, `Session:Release`, and `Ledger.Sweep`. On a store
+built with `BumpEvery`, `Bump` queues like `Apply` and its Future answers once the window is written.
 
 Three of them are more than they look:
 

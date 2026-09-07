@@ -102,6 +102,7 @@ export type Store<D> = StoreCommon<D, string> & {
 	Expect: (self: any, Player: Player) -> Live<D>,
 	WaitForLoaded: (self: any, Player: Player) -> Live<D>?,
 	Edit: (self: any, Key: KeyLike, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
+	EditOp: (self: any, Key: KeyLike, Op: Op) -> Future<boolean, Reason?>,
 	Confirm: (self: any, Key: KeyLike, Id: string, Kind: string, Fields: { [any]: any }?) -> Future<boolean, Reason?>,
 	Tx: (self: any, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
 }
@@ -111,6 +112,7 @@ export type TypedStore<D, O> = StoreCommon<D, TypeFunctions.NumberKeys<D>> & {
 	Expect: (self: any, Player: Player) -> TypedLive<D, O>,
 	WaitForLoaded: (self: any, Player: Player) -> TypedLive<D, O>?,
 	Edit: TypeFunctions.Overloads<O, (any, KeyLike) -> Future<boolean, Reason?>>,
+	EditOp: (self: any, Key: KeyLike, Op: TypeFunctions.OpUnion<O>) -> Future<boolean, Reason?>,
 	Confirm: TypeFunctions.Overloads<O, (any, KeyLike, string) -> Future<boolean, Reason?>>,
 	Tx: (self: any, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
 }
@@ -121,6 +123,8 @@ type ConfigCommon<D> = {
 	read Balance: string?,
 	read Migrations: { Migration }?,
 	read Keys: KeysMode?,
+	read Shards: number?,
+	read BumpEvery: number?,
 	read OnLoadFailed: ((Player: Player, Why: Reason) -> boolean)?,
 	read Hook: Engine.Hook?,
 	read Mock: (boolean | Shapes.Mocked)?,

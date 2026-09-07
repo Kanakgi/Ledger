@@ -39,6 +39,7 @@ export type Bucket = {
 }
 
 local LastNode = ""
+local LastCount = 0
 local LastShard = 0
 
 local function Counted(State: Data, Field: string): number
@@ -74,11 +75,13 @@ local function Bumping(Data: Data, Op: Op): Data?
 	return Next
 end
 
-local function Mine(Node: string?): number
+local function Mine(Node: string?, Count: number?): number
 	local Home = Node or Ids.Home()
-	if Home ~= LastNode then
+	local Over = Count or Shards.SHARDS
+	if Home ~= LastNode or Over ~= LastCount then
 		LastNode = Home
-		LastShard = Digest.Bucket(Home, Shards.SHARDS)
+		LastCount = Over
+		LastShard = Digest.Bucket(Home, Over)
 	end
 	return LastShard
 end
@@ -87,9 +90,10 @@ local function Shard(Name: string, Index: number): string
 	return `{Name}{Shards.PART}{Index}`
 end
 
-local function Keys(Name: string): { string }
-	local Keys: { string } = table.create(Shards.SHARDS) :: { string }
-	for Index = 1, Shards.SHARDS do
+local function Keys(Name: string, Count: number?): { string }
+	local Over = Count or Shards.SHARDS
+	local Keys: { string } = table.create(Over) :: { string }
+	for Index = 1, Over do
 		Keys[Index] = Shard(Name, Index - 1)
 	end
 	return Keys

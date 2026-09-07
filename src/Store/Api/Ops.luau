@@ -81,6 +81,8 @@ type Holding = { Holds: { [string]: Hold }, Stock: { [string]: number } }
 local MAX_TRANSFER_ID = 64
 local MAX_TX_ID = 50
 local MAX_BOOKING_ID = 64
+local SHARD_DIGITS = #tostring(Shards.MOST)
+local BUMP_BUDGET = 4
 
 local REFUSED = Reasons.Refused
 local INVALID = Reasons.Invalid
@@ -179,6 +181,58 @@ local function Rewritten(Held: MemoryStoreWrapper, Slot: string, Change: (Holdin
 	end, Windows.BOOK))
 end
 
+local function Waiting(self: Store, Slot: string): number
+	local Bumps = self.Bumps
+	if Bumps == nil then
+		return 0
+	end
+
+	local Held = Bumps.Queued[Slot]
+	return (if Held ~= nil then Held.Amount else 0) + (Bumps.Flushing[Slot] or 0)
+end
+
+local function Requeued(Bumps: Types.Batched, Slot: string, Held: Types.Queued)
+	local Back = Bumps.Queued[Slot]
+	if Back == nil then
+		Bumps.Queued[Slot] = Held
+		return
+	end
+	Back.Amount += Held.Amount
+	for _, Thread in Held.Threads do
+		table.insert(Back.Threads, Thread)
+	end
+end
+
+local function Queued(Bumps: Types.Batched, Slot: string, Name: string, Field: string, Amount: number): Types.Queued
+	local Held = Bumps.Queued[Slot]
+	if Held ~= nil then
+		Held.Amount += Amount
+		return Held
+	end
+
+	local Threads: { thread } = {}
+	local Fresh: Types.Queued = {
+		Name = Name,
+		Field = Field,
+		Amount = Amount,
+		Threads = Threads,
+		Answer = Future.New(function(): (boolean, Reason?)
+			table.insert(Threads, coroutine.running())
+			return coroutine.yield()
+		end),
+	}
+	Bumps.Queued[Slot] = Fresh
+	return Fresh
+end
+
+local function Answered(self: Store, Held: Types.Queued, Ok: boolean, Why: Reason?)
+	local Resume = self.Wrapper.Scheduler.Resume
+	for _, Thread in Held.Threads do
+		Resume(Thread, Ok, Why)
+	end
+	table.clear(Held.Threads)
+end
+
 function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: any }?): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "Edit")
 
@@ -192,6 +246,25 @@ function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: an
 
 	return Future.New(function(): (boolean, Reason?)
 		return self:Written(Resolved, Op, `edit '{Kind}'`)
+	end)
+end
+
+function Store.EditOp(self: Store, Key: KeyLike, Op: Op): Future<boolean, Reason?>
+	local Resolved = self:Resolve(Key, "EditOp")
+	if type(Op) ~= "table" or type(Op.Id) ~= "string" or #Op.Id == 0 or type(Op.Kind) ~= "string" or #Op.Kind == 0 then
+		warn("Ledger: EditOp rejected the op, an op needs a string Id and a string Kind")
+		return Rejected(INVALID)
+	end
+
+	local Held: Op = TableUtil.DeepCopy(Op)
+	local Fine, Wrong = NewOp.Check(Held)
+	if not Fine then
+		warn(`Ledger: EditOp rejected op '{Held.Kind}', {Wrong}`)
+		return Rejected(INVALID)
+	end
+
+	return Future.New(function(): (boolean, Reason?)
+		return self:Written(Resolved, Held, `edit '{Held.Kind}'`)
 	end)
 end
 
@@ -542,8 +615,8 @@ function Store.TallyName(self: Store, Name: any, Field: any, What: string): stri
 	self:Live(What)
 	assert(self.Keys == "String", `{What} is for string keyed stores, '{self.Options.Name}' uses player keys`)
 	assert(
-		type(Name) == "string" and #Name > 0 and #Name + #Shards.PART + 2 <= Datastore.MAX_KEY and utf8.len(Name) ~= nil,
-		`{What} needs a Name short enough to carry a shard number, up to {Datastore.MAX_KEY - #Shards.PART - 2} characters`
+		type(Name) == "string" and #Name > 0 and #Name + #Shards.PART + SHARD_DIGITS <= Datastore.MAX_KEY and utf8.len(Name) ~= nil,
+		`{What} needs a Name short enough to carry a shard number, up to {Datastore.MAX_KEY - #Shards.PART - SHARD_DIGITS} characters`
 	)
 	Validate.Field(self.Initial, Field, What)
 	return Name
@@ -567,9 +640,14 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 		`Bump needs a positive finite Amount. a tally is spread over keys that cannot see each other, so nothing can be taken back out of one`
 	)
 
-	local Key = Tally.Shard(Name, Tally.Mine(self.Node))
+	local Key = Tally.Shard(Name, Tally.Mine(self.Node, self.Shards))
 	local Op = Tally.Bump(Field, Amount)
 	local Slot = Tally.Cache(self.Wrapper.Name, Name, Field)
+
+	local Bumps = self.Bumps
+	if Bumps ~= nil then
+		return Queued(Bumps, Slot, Name, Field, Amount).Answer
+	end
 
 	return Future.New(function(): (boolean, Reason?)
 		local Ok, Why = self:Written(Key, Op, `add {Amount} to '{Name}'`)
@@ -581,6 +659,39 @@ function Store.Bump(self: Store, Name: string, Field: string, Amount: number): F
 		end
 		return Ok, Why
 	end)
+end
+
+function Store.Flushed(self: Store)
+	local Bumps = self.Bumps
+	if Bumps == nil or next(Bumps.Queued) == nil then
+		return
+	end
+	local Queued = Bumps.Queued
+	Bumps.Queued = {}
+
+	local Writes = Enum.DataStoreRequestType.UpdateAsync
+	local Flushing = Bumps.Flushing
+	for Slot, Held in Queued do
+		if not self:Affords(Writes, BUMP_BUDGET) then
+			Requeued(Bumps, Slot, Held)
+			continue
+		end
+
+		local Amount = Held.Amount
+		Flushing[Slot] = (Flushing[Slot] or 0) + Amount
+		local Key = Tally.Shard(Held.Name, Tally.Mine(self.Node, self.Shards))
+		local Ok, Why = self:Written(Key, Tally.Bump(Held.Field, Amount), `add {Amount} to '{Held.Name}'`)
+
+		local Left = (Flushing[Slot] or 0) - Amount
+		Flushing[Slot] = if Left > 0 then Left else nil
+		if Ok then
+			local Now = Clock.Now()
+			local Recent = self:Kept(Slot, Now)
+			self.Bumped += 1
+			Bumped(Recent, self.Bumped, Now, Amount)
+		end
+		Answered(self, Held, Ok, Why)
+	end
 end
 
 function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?): Future<number?, Reason?>
@@ -595,23 +706,24 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 		local Now = Clock.Now()
 		local Held = self:Kept(Slot, Now)
 		if Age > 0 and Held.Seen > 0 and Now - Held.Seen <= Age then
-			return Held.Sum + Over(Held), nil
+			return Held.Sum + Over(Held) + Waiting(self, Slot), nil
 		end
 
-		local Mine = Tally.Mine(self.Node)
+		local Count = self.Shards
+		local Mine = Tally.Mine(self.Node, Count)
 		local Mark: number? = nil
 		local Source: Types.Source = {
 			Key = Name,
 			Slot = Slot,
 			Map = self.Tallies,
-			Cost = Shards.SHARDS,
+			Cost = Count,
 			Fits = false,
 			Refill = function(_Copy: Copy): (any?, number?, Reason?)
 				local Own = Tally.Shard(Name, Mine)
 				local Counted = self.Bumped
 				local Sum = 0
-				local Read: { number } = table.create(Shards.SHARDS) :: { number }
-				for Index, Key in Tally.Keys(Name) do
+				local Read: { number } = table.create(Count) :: { number }
+				for Index, Key in Tally.Keys(Name, Count) do
 					Read[Index] = Clock.Now()
 					local Ok, State = pcall(function(): any
 						return self:Fold(self:ReadRecord(Key))
@@ -635,7 +747,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 		if type(State) ~= "table" or type(State.Sum) ~= "number" then
 			return nil, Why or UNRESOLVED
 		end
-		return Remember(Held, State.Sum, Held.At, Held.Seen, Mark, Tally.Since(State, Mine)), nil
+		return Remember(Held, State.Sum, Held.At, Held.Seen, Mark, Tally.Since(State, Mine)) + Waiting(self, Slot), nil
 	end)
 end
 

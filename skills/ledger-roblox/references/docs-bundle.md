@@ -8,7 +8,7 @@
   <Tab value="Wally">
     ```toml
     [dependencies]
-    Ledger = "xoifaii/ledger@5.1.1"
+    Ledger = "xoifaii/ledger@5.2.0"
     ```
   </Tab>
 
@@ -449,7 +449,8 @@ Measured on the mock, for the path where nothing fails.
 
 | operation                                  | datastore requests                                                     |
 | ------------------------------------------ | ---------------------------------------------------------------------- |
-| `Peek`, `Edit`, `Bump`                     | 1                                                                      |
+| `Peek`, `Edit`, `EditOp`, `Bump`           | 1                                                                      |
+| `Bump`, with `BumpEvery`                   | 0, and one per tally per window                                        |
 | `Peek` with a `MaxAge`, from the copy      | 0, and one MemoryStore unit                                            |
 | `Peek` with a `MaxAge`, refilling the copy | 1, and five units, on one server a minute                              |
 | `Reserve`, `Release`                       | 0, and two MemoryStore units, plus one read on the first hold of a key |
@@ -492,10 +493,12 @@ it. The one server that refills the shared copy spends five units and one reques
 copy has to fit one MemoryStore item, 32 KB of your fields. A bigger key is read from the record by
 every server. Ledger says so once a window.
 
-A total is spread over 16 keys. `Total` answers a sum cached in MemoryStore for one request unit.
-After 60 to 75 seconds that sum is stale. One server then reads all 16 keys and caches the sum
-again. A cold total costs that server 16 requests. Each server has its own limit between 60 and
-75 seconds. One server refills the sum, not all of them. `Bump` costs one request and no units.
+A total is spread over 16 keys, or the `Shards` the store names, 1 to 99. `Total` answers a sum
+cached in MemoryStore for one request unit. After 60 to 75 seconds that sum is stale. One server
+then reads every key and caches the sum again. A cold total costs that server one request per
+shard. Each server has its own limit between 60 and 75 seconds. One server refills the sum, not
+all of them. `Bump` costs one request and no units. With `BumpEvery` a server pays one request per
+tally per window, however many times it bumps.
 
 See [Reservations and totals](/docs/guides/reservations).
 
@@ -534,6 +537,27 @@ you don't have to plan around.
 
 `+` is new, `-` is gone, `!` is something you have to know about before you upgrade.
 
+## 5.2.0 [#520]
+
+```diff
++ Store:EditOp(Key, Op) appends an op with your own id. Sent again, it lands one time
++ Ledger.Id() API to use the same method Ledger uses to generate ids
++ Shards on the config sets how many keys a total is spread over, 1 to 99
++ BumpEvery on the config queues bumps and writes one op per tally per window
++ A reducer that returns a state for a kind it does not know gets a warning when the store is built
++ In Studio, state a datastore cannot hold gets a warning at the next save, with the field named
+
+- An edit whose reducer threw answering Refused with no word of the throw
+
+! Reserve answers Busy, not Refused, when a key already holds 256. Ask again, a hold runs out in 15 minutes or less
+! With BumpEvery a Bump's Future answers once its window is written. Wait on it for a durable answer, the way Commit is. Do not wait and a crash can lose the window
+```
+
+### Upgrading [#upgrading]
+
+Install the new version. A game that reads `Refused` from `Reserve` as sold out has to read `Busy`
+as try again.
+
 ## 5.1.1 [#511]
 
 ```diff
@@ -541,7 +565,7 @@ you don't have to plan around.
 - A reap pass that listed all 32 shards at once and ran a small server out of list budget. The sweep sizes a reap pass from the list budget now, one shard on a small server
 ```
 
-### Upgrading [#upgrading]
+### Upgrading [#upgrading-1]
 
 Install the new version.
 
@@ -566,7 +590,7 @@ the shared copy it was 4 reads, at one MemoryStore unit per server per minute.
 ! A copy shares the MemoryStore quota with holds, totals and leases, at one unit a tick per server
 ```
 
-### Upgrading [#upgrading-1]
+### Upgrading [#upgrading-2]
 
 Install the new version.
 
@@ -585,7 +609,7 @@ Install the new version.
 ! A commit replayed after its op was folded into the snapshot answers Unresolved, the same as Edit
 ```
 
-### Upgrading [#upgrading-2]
+### Upgrading [#upgrading-3]
 
 Install the new version. The stored record does not change, and your code does not change unless
 it reuses a booking Id from one purchase to the next. Give each purchase its own Id, the order id
@@ -632,7 +656,7 @@ A purchase is 3 datastore calls and 6 MemoryStore units, and it stays there from
 ! 5.0 does not read a reservation a 4.x server made. Drain them before you upgrade
 ```
 
-### Upgrading [#upgrading-3]
+### Upgrading [#upgrading-4]
 
 Install the new version. The stored record does not change, and a store that never called `Reserve`
 needs nothing else.
@@ -1247,7 +1271,7 @@ across a retry:
 
 ```luau
 local Ok, Why = Session:CommitOp({
-	Id = HttpService:GenerateGUID(false),
+	Id = Ledger.Id(),
 	Kind = "GrantReward",
 	Item = "Sword",
 	Once = `order:{OrderId}`,
@@ -1423,7 +1447,7 @@ at most one time on that key.
 
 ```luau
 Session:CommitOp({
-	Id = HttpService:GenerateGUID(false),
+	Id = Ledger.Id(),
 	Kind = "ProductGrant",
 	ProductId = 123456,
 	Once = `receipt:{Receipt.PurchaseId}`,
@@ -1957,9 +1981,23 @@ Return `nil` for anything you don't recognise. Ledger treats that as a refusal, 
 rolling deploy safe. An old server that's never heard of `NewFeatureOp` refuses it instead of
 guessing at it.
 
+Ledger checks this when the store is built. It hands the reducer a kind nothing knows. A reducer
+that returns a state for it gets a warning at `New`. Every unknown op on that store counts as
+applied until the reducer is fixed.
+
 That's a kind you don't know yet. A kind you've deleted is the other way round, because nothing is
 ever going to accept it, and refusing one of those stops the key compacting for good. See [changing
 the reducer](/docs/guides/migrations#changing-the-reducer).
+
+## What Studio checks at every save [#what-studio-checks-at-every-save]
+
+In Studio, Ledger checks the folded state of a session at every save. State a datastore cannot
+hold gets a warning that names the field. An array with a gap, a table that mixes array and string
+keys, and a `nan` are the usual causes. A table keyed by `UserId` is an array with gaps. Key it by
+`tostring(UserId)` instead.
+
+Live servers skip the check. A key in that state keeps taking writes and stops compacting, and the
+compaction says so.
 
 ## Check the fields [#check-the-fields]
 
@@ -3027,8 +3065,9 @@ A checkout that stays open longer calls `Reserve` again under the same Id. That 
 hold out and holds nothing extra. Call `Release` when the player walks away, so the next buyer does
 not wait the 15 minutes.
 
-One key holds 256 at once. Past that `Reserve` answers [`Refused`](/docs/concepts/reasons), which in
-practice means they are being made faster than they are being confirmed or released.
+One key holds 256 at once. Past that `Reserve` answers [`Busy`](/docs/concepts/reasons).
+Holds are being made faster than they are confirmed or released. A hold runs out in 15
+minutes or less. Ask again shortly. `Refused` means the stock cannot cover the units.
 
 The stock a hold is judged against is what the key read last. A refusal reads the key again before
 it answers, so a restock is seen. `Reserve` needs MemoryStore, which in Studio means API access on.
@@ -3086,7 +3125,8 @@ A total is the other shape. Nothing is limited, a lot of servers add to it, and 
 
 One key can only be written by one server at a time, so a key that every server writes spends its
 time retrying. `Bump` spreads the total over 16 keys and gives each server its own, so they stop
-queueing behind each other.
+queueing behind each other. `Shards` on the config sets the count, 1 to 99. Raise it for a large
+fleet. Never lower it on a live store. The bumps on the top shards then leave every total.
 
 ```luau
 local Events = Ledger.New({
@@ -3101,7 +3141,13 @@ Events:Bump("summerpot", "Gold", 25):Wait()
 local Pot = Events:Total("summerpot", "Gold"):Wait()
 ```
 
-`Total` reads all 16 shards, so it costs 16 requests. Read it on a timer and cache it.
+`Total` answers a sum cached in MemoryStore for one request unit. One server a minute reads every
+shard and refills it. Read it on a timer.
+
+A game that bumps on every action sets `BumpEvery` on the store, in seconds up to 60. The server
+then queues its bumps and writes one op per tally per window. `Bump` answers a Future that
+completes when the window is written. Wait on it the way you wait on `Commit`, or do not and it is
+hopeful like `Apply`. A server that crashes loses the bumps of its last window.
 
 `Total` answers what has been added, not what the 16 keys hold. `Bump` keeps its own running count on
 each shard and never touches the field your reducer owns, so the `Default` never counts toward the
@@ -3440,7 +3486,7 @@ one until you return `PurchaseGranted`, so it survives a server restart as well 
 ```luau
 local function OpenTrade(A: Player, B: Player)
 	return {
-		Id = HttpService:GenerateGUID(false),   -- once, here
+		Id = Ledger.Id(),   -- once, here
 		A = A,
 		B = B
 	}
@@ -3450,8 +3496,8 @@ end
 Store:Tx(`trade:{Trade.Id}`, Legs):Wait()
 ```
 
-A GUID is fine there because it's minted once and held. What breaks is generating one inside the `Tx`
-call, since every retry would be a new transaction and apply the money again.
+`Ledger.Id` is fine there because it's minted once and held. What breaks is generating one inside
+the `Tx` call, since every retry would be a new transaction and apply the money again.
 
 **Anything from outside**, a webhook or your own website, should use the sender's order id. They're
 the ones who retry, so their id is the one that stays the same when they do.
@@ -4183,16 +4229,18 @@ Ledger.New<D>(Options: Config<D>) -> Store<D>
 Builds a store. Throws on anything wrong with the options, at build time, rather than letting it
 misbehave later.
 
-| Option         | Type                                                                 |                                                                                                    |
-| -------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `Name`         | `string`                                                             | Required. The datastore name, 1 to 47 characters.                                                  |
-| `Reducer`      | `(State, Op) -> State?`                                              | Required. See [Writing a reducer](/docs/concepts/reducer).                                         |
-| `Default`      | `D`                                                                  | Required. The fresh state table.                                                                   |
-| `Balance`      | `string?`                                                            | Names a number field for [transfers](/docs/guides/transfers).                                      |
-| `Migrations`   | `{ Migration }?`                                                     | See [Migrations](/docs/guides/migrations).                                                         |
-| `Keys`         | `"Player" \| "String"`                                               | Defaults to `"Player"`.                                                                            |
-| `OnLoadFailed` | `((Player, Reason) -> boolean)?`                                     | What to do when a load fails. See below.                                                           |
-| `Mock`         | `boolean \| { Players: number?, CCU: number?, Throttled: boolean? }` | Puts this store on an in memory datastore, sized how you ask. See [Testing](/docs/guides/testing). |
+| Option         | Type                                                                 |                                                                                                                                           |
+| -------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `Name`         | `string`                                                             | Required. The datastore name, 1 to 47 characters.                                                                                         |
+| `Reducer`      | `(State, Op) -> State?`                                              | Required. See [Writing a reducer](/docs/concepts/reducer).                                                                                |
+| `Default`      | `D`                                                                  | Required. The fresh state table.                                                                                                          |
+| `Balance`      | `string?`                                                            | Names a number field for [transfers](/docs/guides/transfers).                                                                             |
+| `Migrations`   | `{ Migration }?`                                                     | See [Migrations](/docs/guides/migrations).                                                                                                |
+| `Keys`         | `"Player" \| "String"`                                               | Defaults to `"Player"`.                                                                                                                   |
+| `Shards`       | `number?`                                                            | How many keys a total is spread over, 1 to 99. Defaults to 16. Only ever raise it. See [Bump](/docs/reference/store#bump).                |
+| `BumpEvery`    | `number?`                                                            | Seconds between the writes of queued bumps, up to 60. Leave it out and every `Bump` is one write. See [Bump](/docs/reference/store#bump). |
+| `OnLoadFailed` | `((Player, Reason) -> boolean)?`                                     | What to do when a load fails. See below.                                                                                                  |
+| `Mock`         | `boolean \| { Players: number?, CCU: number?, Throttled: boolean? }` | Puts this store on an in memory datastore, sized how you ask. See [Testing](/docs/guides/testing).                                        |
 
 The name caps at 47 rather than the datastore's 50 because Ledger also creates `<Name>_Tx` for
 transaction markers.
@@ -4262,6 +4310,21 @@ what that kind carries. Your reducer gets `Ledger.Op<Ops>`, which narrows on `Op
 
 It takes every option `Ledger.New` takes and validates them the same way. The store it builds is the
 same object and behaves identically at runtime. See [Typed ops](/docs/concepts/typed-ops).
+
+## Ledger.Id [#ledgerid]
+
+```luau
+Ledger.Id() -> string
+```
+
+Creates a short id that is different on every server and on every call. It is the id Ledger puts on
+its own ops. Use it for an op you build yourself, a transfer or a transaction. Mint it one time and
+keep it for every retry.
+
+```luau
+local Op = { Id = Ledger.Id(), Kind = "GrantReward", Item = "Sword" }
+Store:EditOp(UserId, Op):Wait()
+```
 
 ## Ledger.Reason [#ledgerreason]
 
@@ -4823,6 +4886,33 @@ affect answers straight away.
 On a store built with [`NewTyped`](/docs/concepts/typed-ops) the `Kind` is held against the kinds you
 named and the `Fields` against what that kind carries.
 
+### EditOp [#editop]
+
+```luau
+Store:EditOp(Key: KeyLike, Op: Op) -> Future<boolean, Reason?>
+```
+
+Appends an op you built yourself, with your own `Id`. The same op sent again lands one time. Use it
+to retry an edit that answered `Unresolved`. `Edit` creates a new id on every call. A retried `Edit`
+can apply twice.
+
+Create the id with [`Ledger.Id`](/docs/reference/ledger#ledgerid) and keep it for the retry. An op
+needs a string `Id` and a string `Kind`. `Invalid` is the answer when either is missing, or when a
+field cannot be stored. Ledger copies the op. The table you pass is never changed.
+
+```luau
+local Op = { Id = Ledger.Id(), Kind = "Archive", Line = Line }
+local Ok, Why = Store:EditOp("journal", Op):Wait()
+if not Ok and Why == Ledger.Reason.Unresolved then
+	Ok, Why = Store:EditOp("journal", Op):Wait()
+end
+```
+
+A retry after the key has compacted answers `Unresolved`. The op is in the snapshot by then, and
+the record cannot say whether that id took.
+
+On a store built with `NewTyped` the op is held against the kinds you named.
+
 ### Transfer [#transfer]
 
 ```luau
@@ -4861,10 +4951,10 @@ field of your state stops the build rather than throwing at the call. `Bump`, `T
 Asking again under a name already held answers `true` and holds nothing extra. Once a hold has gone,
 confirmed, released or run out, the same name can be used again.
 
-Asking for more than the field has, counting what is already held, answers `Refused`. So does asking
-while a key already holds 256 at once, which means they are being made faster than they are being
-confirmed or released. The stock a hold is judged against is what the key read last, and a refusal
-reads the key again before it answers, so a restock is seen.
+Asking for more than the field has, counting what is already held, answers `Refused`. Asking while
+a key already holds 256 answers `Busy`. A hold runs out in 15 minutes or less. Ask again shortly.
+The stock a hold is judged against is what the key read last, and a refusal reads the key again
+before it answers, so a restock is seen.
 
 `Hold` is how long to keep it, in seconds. The cap and the default are both 15 minutes, so `Hold`
 can only shorten a hold. A `Hold` above the cap throws where you wrote the call. Reserve again under
@@ -4943,9 +5033,18 @@ Store:Bump(Name: string, Field: string, Amount: number) -> Future<boolean, Reaso
 
 String keyed stores only. Adds `Amount` to a total spread over 16 keys, named `<Name>#0` to
 `<Name>#15`. Each server writes its own shard, so servers do not queue behind each other on one key.
+`Shards` on the config sets the count, 1 to 99. Only ever raise it on a live store. A lower count
+stops reading the top shards, and their bumps leave every total.
 
 `Amount` has to be positive. A total is spread over keys that cannot see each other, so nothing can be
 taken back out of one. Anything with a limit belongs on a single key, where `Reserve` can hold it.
+
+A store built with `BumpEvery` queues its bumps. Every `BumpEvery` seconds the server writes one
+op per tally with the sum of its queued bumps. `Bump` then answers one Future shared by every bump
+of that tally in the window. Wait on it and it answers once the window is written, the way `Commit`
+does. Do not wait and the bump is hopeful, the way `Apply` is. `Destroy` and `CloseAll` write what
+is queued. A server that crashes loses the bumps of its last window. Your own server's totals show
+a queued bump immediately.
 
 ### Total [#total]
 
@@ -4954,7 +5053,7 @@ Store:Total(Name: string, Field: string, MaxAge: number?) -> Future<number?, Rea
 ```
 
 Answers the sum cached in MemoryStore, for one request unit. After 60 to 75 seconds that sum is
-stale. One server then reads all 16 shards and caches the sum again. The other servers answer the
+stale. One server then reads every shard and caches the sum again. The other servers answer the
 old sum until then. A total from another server is at most 90 seconds behind, plus the time one
 refill takes. Each server has its own limit between 60 and 75 seconds. One server refills the sum,
 not all of them. Your own server's bumps show in its totals immediately.
@@ -4962,12 +5061,12 @@ not all of them. Your own server's bumps show in its totals immediately.
 `MaxAge` answers this server's own last sum with no call while that sum is younger than `MaxAge`
 seconds. A pot drawn every five seconds costs nothing between its own refills.
 
-It answers what has been added, not what the keys hold. Each of the 16 shards starts at the value
+It answers what has been added, not what the keys hold. Each shard starts at the value
 your `Default` gives the field. That baseline is taken off the sum. A tally nobody has added to
 reads 0 for any `Default`.
 
 MemoryStore has to be reachable. In Studio that means API access on. A store whose hook has no
-MemoryStore, or whose MemoryStore is down, reads the 16 shards each time and answers the same sum.
+MemoryStore, or whose MemoryStore is down, reads every shard each time and answers the same sum.
 It says so once.
 
 ### Tx [#tx]

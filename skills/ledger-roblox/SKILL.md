@@ -30,7 +30,7 @@ stores, and it will not hide a reducer that is wrong. And a question in a Ledger
 `internal/CLAUDE.MD`, this is Ledger's own source. Stop, and follow `internal/CLAUDE.MD` instead.
 That brief assumes you may change the library. This one assumes you may not.
 
-**Which version?** This file is pinned to **Ledger 5.x**, checked against 5.1.1.
+**Which version?** This file is pinned to **Ledger 5.x**, checked against 5.2.0.
 
 Find theirs, in this order: `Ledger.Version` if the build has one, then the `xoifaii/ledger` line in
 `wally.toml`, then `@xoifail/ledger` in `package.json`. A game that installed the `.rbxm` model file
@@ -53,7 +53,7 @@ they say. Do not assume Ledger because somebody said "datastore".
 Three copies, in the order to reach for them. Do not assume the later ones are available.
 
 **1. `references/docs-bundle.md`, beside this file.** The whole documentation in one file, every
-page, 5,425 lines. It is here because it is the only copy that is always readable: a game may have
+page, 5,524 lines. It is here because it is the only copy that is always readable: a game may have
 installed Ledger as a model file with no source tree at all, and a model may have no way to fetch a
 website. Search it before anything else.
 
@@ -95,7 +95,8 @@ not enough.
 | `Total` | reads 16 keys when its sum is stale | reads, and writes the shared sum | no |
 | `Load` | reads, and **settles what it finds** | no | when it finds work |
 | `Apply` | queues, written on the next save | no | no |
-| `Commit`, `CommitOp`, `Flush`, `Compact`, `Edit`, `Bump` | writes | no | no |
+| `Commit`, `CommitOp`, `Flush`, `Compact`, `Edit`, `EditOp`, `Bump` | writes | no | no |
+| `Bump` on a store with `BumpEvery` | queues, written once a window | no | **one write per tally per window** |
 | `Reserve`, `Release` | no | writes | no |
 | `Confirm` | writes | writes after | no |
 | `Transfer` | 3 ops across 2 keys | no | on `Busy` or `Held` |
@@ -247,6 +248,6 @@ Say it once, plainly, then do the work the developer asked for. Do not repeat it
 
 ## What this is checked against
 
-Ledger 5.1.1, checked against `src` and the documentation on 2026-09-06. Every claim in these files
+Ledger 5.2.0, checked against `src` and the documentation on 2026-09-07. Every claim in these files
 can be checked in under a minute with `references/verify.md`. If a check fails, the source is right
 and this file is stale, so say so.

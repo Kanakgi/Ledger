@@ -330,6 +330,132 @@ Cases.Case("a fleet spreads its bumps over more than one shard", function(T: Cas
 	T:Is("and never more keys than there are shards", Written <= Shards.SHARDS, true)
 end)
 
+Cases.Case("a store says how many shards its tallies are spread over", function(T: Case)
+	local function Fleet(Name: string, Count: number): (number, number)
+		local Servers: { any } = {}
+		for Index = 1, 12 do
+			table.insert(Servers, T:Store({ Default = Reducers.SHELF, Reducer = Reducers.Shopkeeper, Field = "Stock", Node = `{Name}{Index}`, Shards = Count }))
+		end
+		for _, Held in Servers do
+			Held.Store:Bump(Name, "Gold", 1):Wait()
+		end
+
+		local Written = 0
+		for Index = 0, Shards.SHARDS - 1 do
+			if (Servers[1].Direct:Current(Tally.Shard(Name, Index))) ~= nil then
+				Written += 1
+			end
+		end
+		return (Servers[1].Store:Total(Name, "Gold"):Wait()), Written
+	end
+
+	local NarrowTotal, NarrowKeys = Fleet("narrow", 3)
+	local OneTotal, OneKeys = Fleet("one", 1)
+
+	T:Is("the tally over three shards", NarrowTotal, 12)
+	T:Is("shard keys written, more than one and never past three", NarrowKeys > 1 and NarrowKeys <= 3, true)
+	T:Is("the tally on one shard", OneTotal, 12)
+	T:Is("every server on that one key", OneKeys, 1)
+end)
+
+local function Batching(T: Case, Node: string): Fixture
+	return T:Store({ Default = Reducers.SHELF, Reducer = Reducers.Shopkeeper, Field = "Stock", Node = Node, BumpEvery = 10 })
+end
+
+local function Summed(Shelf: Fixture, Shard: string): (number, number)
+	local Ops = Shelf:Record(Shard).Ops
+	local Total = 0
+	for _, Op in Ops do
+		Total += Op.Amount
+	end
+	return #Ops, Total
+end
+
+Cases.Case("a store that batches its bumps writes one op per tally per window and answers at once", function(T: Case)
+	local Shelf = Batching(T, "batch")
+	local Other = Batching(T, "watching")
+	local Shard = Tally.Shard("pot", Tally.Mine("batch"))
+
+	local First = Shelf.Store:Bump("pot", "Gold", 1)
+	for _ = 1, 4 do
+		T:Is("a bump in the same window shares the first one's answer", Shelf.Store:Bump("pot", "Gold", 1), First)
+	end
+
+	T:No("nothing answered before the window", First:Happened())
+	T:Is("the total this server answers before anything is written", (Shelf.Store:Total("pot", "Gold"):Wait()), 5)
+	T:Is("nothing on the shard yet", Shelf.Direct:Current(Shard), nil)
+
+	T:Advance(11)
+	T:Ok(
+		"the window wrote it",
+		T:Until(function(): boolean
+			return Shelf.Direct:Current(Shard) ~= nil
+		end)
+	)
+
+	T:Ok("the queued bumps answered once written", First:Happened())
+	T:Is("what they answered", (First:Wait()), true)
+	local Ops, OnDisk = Summed(Shelf, Shard)
+	T:Is("ops on the shard, one for five bumps", Ops, 1)
+	T:Is("the tally on disk", OnDisk, 5)
+	T:Is("the total this server answers after the write, not doubled", (Shelf.Store:Total("pot", "Gold"):Wait()), 5)
+
+	T:Advance(Windows.TALLY_CACHE + 1)
+	T:Is("the total another server reads", (Other.Store:Total("pot", "Gold"):Wait()), 5)
+	T:Is("and this server's, once more from the shards", (Shelf.Store:Total("pot", "Gold"):Wait()), 5)
+end)
+
+Cases.Case("waiting on a queued bump answers once its window is written, the way Commit does", function(T: Case)
+	local Shelf = Batching(T, "durable")
+	local Shard = Tally.Shard("pot", Tally.Mine("durable"))
+
+	local Job = Shelf.Store:Bump("pot", "Gold", 4)
+	local Answered: boolean? = nil
+	T:Spawn(function()
+		Answered = Job:Wait(30)
+	end)
+
+	T:Advance(11)
+	T:Ok(
+		"the waiter woke once the window wrote",
+		T:Until(function(): boolean
+			return Answered ~= nil
+		end)
+	)
+	T:Is("the answer, true once written", Answered, true)
+	local Ops, OnDisk = Summed(Shelf, Shard)
+	T:Is("ops on the shard", Ops, 1)
+	T:Is("the tally on disk", OnDisk, 4)
+end)
+
+Cases.Case("destroying a store writes the bumps it was still holding", function(T: Case)
+	local Shelf = Batching(T, "closing")
+	local Shard = Tally.Shard("pot", Tally.Mine("closing"))
+
+	local Job = Shelf.Store:Bump("pot", "Gold", 3)
+	T:Is("nothing on the shard yet", Shelf.Direct:Current(Shard), nil)
+
+	Shelf.Store:Destroy()
+	T:Is("the queued bump answered on the way down", (Job:Wait(1)), true)
+	local Ops, OnDisk = Summed(Shelf, Shard)
+	T:Is("ops on the shard", Ops, 1)
+	T:Is("the tally on disk", OnDisk, 3)
+end)
+
+Cases.Case("CloseAll writes the bumps every store was still holding", function(T: Case)
+	local Shelf = Batching(T, "downing")
+	local Shard = Tally.Shard("pot", Tally.Mine("downing"))
+
+	local Job = Shelf.Store:Bump("pot", "Gold", 2)
+	Shelf.Store:Bump("pot", "Gold", 2)
+
+	Ledger.CloseAll()
+	T:Is("the queued bumps answered on the way down", (Job:Wait(1)), true)
+	local Ops, OnDisk = Summed(Shelf, Shard)
+	T:Is("the tally on disk, one op", Ops, 1)
+	T:Is("what it holds", OnDisk, 4)
+end)
+
 Cases.Case("a total refuses rather than under reporting when a shard cannot be read", function(T: Case)
 	local Shelf = T:Shelf()
 	for Index = 1, 6 do
