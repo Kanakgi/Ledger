@@ -1379,6 +1379,30 @@ Cases.Case("a server whose write budget has run out says so rather than piling o
 	T:Is("and the session still reads what it applied", Live:Get().Gold, 105)
 end)
 
+Cases.Case("a server whose read budget has run out skips the autosave too, since a write spends a read as well", function(T: Case)
+	local Bank, Live = Ticking(T, 66)
+	Live:Apply("Fund", { Amount = 5 })
+
+	local Asked = 0
+	Bank:Budget(function(Kind: Enum.DataStoreRequestType): number
+		Asked += 1
+		return if Kind == Enum.DataStoreRequestType.GetAsync then 0 else 100
+	end)
+
+	T:Advance(Windows.AUTOSAVE + 1)
+	T:Is(
+		"the autosave asked what it could afford",
+		T:Until(function(): boolean
+			return Asked > 0
+		end),
+		true
+	)
+
+	T:Warns("it named the budget that ran out", "with GetAsync budget at 0", 1)
+	T:Is("nothing was written to the key", #Bank:Record("66").Ops, 0)
+	T:Is("and the session still reads what it applied", Live:Get().Gold, 105)
+end)
+
 Cases.Case("a commit that only holds if the parked leg aborts waits for the leg and lands once it does", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("waitcommit", { Gold = 60, Touches = 0 })

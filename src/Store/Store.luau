@@ -269,11 +269,13 @@ function Store.Autosave(self: Store, UserId: number)
 		return
 	end
 
-	local Pool = if Writing then Enum.DataStoreRequestType.UpdateAsync else Enum.DataStoreRequestType.GetAsync
+	local Reads = Enum.DataStoreRequestType.GetAsync
+	local Writes = Enum.DataStoreRequestType.UpdateAsync
 
 	local Floor = if #Active.Pending >= HEAVY_PENDING then MIN_HEAVY_BUDGET else MIN_WRITE_BUDGET
-	if self.Wrapper:Budget(Pool) < Floor then
-		self:Starved(Pool)
+	local Short = if self.Wrapper:Budget(Reads) < Floor then Reads elseif Writing and self.Wrapper:Budget(Writes) < Floor then Writes else nil
+	if Short ~= nil then
+		self:Starved(Short)
 		return
 	end
 
@@ -315,7 +317,7 @@ function Store.PickUp(self: Store, Active: any, UserId: number)
 	local Pass: Recovery.Pass = {
 		Limit = math.clamp(self.Wrapper:Budget(Writes) // Windows.PASS_SHARE, 1, Windows.PASS_LIMIT),
 		Afford = function(): boolean
-			return self:Affords(Writes, MIN_WRITE_BUDGET)
+			return self:AffordsWrite(MIN_WRITE_BUDGET)
 		end,
 	}
 	local Records, Format = self:Records(), self:Format()

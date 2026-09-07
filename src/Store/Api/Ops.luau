@@ -669,10 +669,9 @@ function Store.Flushed(self: Store)
 	local Queued = Bumps.Queued
 	Bumps.Queued = {}
 
-	local Writes = Enum.DataStoreRequestType.UpdateAsync
 	local Flushing = Bumps.Flushing
 	for Slot, Held in Queued do
-		if not self:Affords(Writes, BUMP_BUDGET) then
+		if not self:AffordsWrite(BUMP_BUDGET) then
 			Requeued(Bumps, Slot, Held)
 			continue
 		end
@@ -807,7 +806,7 @@ end
 
 function Store.Leased(self: Store, Targets: { { Name: string, Key: string } }): ({ () -> () }, boolean)
 	local Taken: { () -> () } = {}
-	if self.Leases == nil or not self:Affords(Enum.DataStoreRequestType.UpdateAsync, Transactions.LEASE_BUDGET) then
+	if self.Leases == nil or not self:AffordsWrite(Transactions.LEASE_BUDGET) then
 		return Taken, false
 	end
 

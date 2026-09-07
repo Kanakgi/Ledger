@@ -76,6 +76,10 @@ function Store.TxAffords(self: Store, Kind: Enum.DataStoreRequestType, Floor: nu
 	return self.TxWrapper:Budget(Kind) >= Floor
 end
 
+function Store.AffordsWrite(self: Store, Floor: number): boolean
+	return self:Affords(Enum.DataStoreRequestType.UpdateAsync, Floor) and self:Affords(Enum.DataStoreRequestType.GetAsync, Floor)
+end
+
 function Store.Swept(self: Store): Types.Swept
 	local Held = self.Sweeping
 	if Held ~= nil then

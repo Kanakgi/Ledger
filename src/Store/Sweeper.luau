@@ -170,7 +170,7 @@ function Sweeper.Pass(self: Sweeper)
 		local Limit = math.clamp(Writes // Windows.PASS_SHARE, 1, Windows.PASS_LIMIT)
 		local Ok, Clean, Moved = pcall(function(): (boolean, boolean)
 			return Entry.Store.Repair(Entry.Key, function(): boolean
-				return Entry.Store.Affords(Enum.DataStoreRequestType.UpdateAsync, MIN_SWEEP_BUDGET)
+				return Affordable(Entry.Store)
 			end, Limit)
 		end)
 		if Claim.Outcome == Transactions.TAKEN and not Ok then

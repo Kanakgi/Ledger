@@ -226,6 +226,7 @@ export type StoreImpl<D> = {
 	ExpectBalance: (self: Store<D>, What: string) -> (),
 	Affords: (self: Store<D>, Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
 	TxAffords: (self: Store<D>, Kind: Enum.DataStoreRequestType, Floor: number) -> boolean,
+	AffordsWrite: (self: Store<D>, Floor: number) -> boolean,
 	Swept: (self: Store<D>) -> Swept,
 	Records: (self: Store<D>) -> LogTypes.Log,
 	Format: (self: Store<D>) -> LogTypes.Shape<D>,

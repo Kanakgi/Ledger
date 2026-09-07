@@ -53,7 +53,7 @@ they say. Do not assume Ledger because somebody said "datastore".
 Three copies, in the order to reach for them. Do not assume the later ones are available.
 
 **1. `references/docs-bundle.md`, beside this file.** The whole documentation in one file, every
-page, 5,524 lines. It is here because it is the only copy that is always readable: a game may have
+page, 5,525 lines. It is here because it is the only copy that is always readable: a game may have
 installed Ledger as a model file with no source tree at all, and a model may have no way to fetch a
 website. Search it before anything else.
 
