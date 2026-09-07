@@ -605,7 +605,14 @@ Bench("follow", function(T: Suite.Case)
 		`and every {Windows.AUTOSAVE}s for {MINUTES} minutes`,
 		Polled,
 		0,
-		string.format("%d reads and %.1f MB a minute on one key of %d bytes, lane %d MB, %s", PerMinute, PerMinute * Bytes / 1048576, Bytes, Lane / 1048576, if PerMinute * Bytes > Lane then "OVER" else "inside")
+		string.format(
+			"%d reads and %.1f MB a minute on one key of %d bytes, lane %d MB, %s",
+			PerMinute,
+			PerMinute * Bytes / 1048576,
+			Bytes,
+			Lane / 1048576,
+			if PerMinute * Bytes > Lane then "OVER" else "inside"
+		)
 	)
 
 	local Maps = Taken(T)
@@ -630,7 +637,12 @@ Bench("follow", function(T: Suite.Case)
 	local CopiedPolled, PolledUnits = Calls(Servers) - Before, T.Service.Units - Units
 
 	Row("every server reading a copy of that key at boot", CopiedBoot, BootUnits, string.format("%.2f reads per server", CopiedBoot / SERVERS))
-	Row(`and every {Windows.AUTOSAVE}s for {MINUTES} minutes`, CopiedPolled, PolledUnits, string.format("%.1f reads and %.1f units per server per minute", CopiedPolled / SERVERS / MINUTES, PolledUnits / SERVERS / MINUTES))
+	Row(
+		`and every {Windows.AUTOSAVE}s for {MINUTES} minutes`,
+		CopiedPolled,
+		PolledUnits,
+		string.format("%.1f reads and %.1f units per server per minute", CopiedPolled / SERVERS / MINUTES, PolledUnits / SERVERS / MINUTES)
+	)
 	Ceilings(T, Maps, MINUTES)
 end)
 

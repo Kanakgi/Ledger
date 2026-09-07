@@ -923,6 +923,28 @@ Cases.Case("a reducer that reads the clock is called out", function(T: Case)
 	T:Is("gold the session reports", Active:Get().Gold, 5)
 end)
 
+Cases.Case("a reducer that builds state a datastore cannot hold is called out at the next save, not at compaction", function(T: Case)
+	local function Roster(State: any, Op: any): any?
+		if Op.Kind ~= "Join" or type(Op.UserId) ~= "number" then
+			return nil
+		end
+		local Members = table.clone(State.Members)
+		Members[Op.UserId] = true
+		return { Gold = State.Gold, Members = Members }
+	end
+
+	local Bank = T:Store({ Default = { Gold = 0, Members = {} }, Reducer = Roster })
+	local Active = Bank:Session("rosterK")
+
+	T:Ok("the first member", (Active:Apply("Join", { UserId = 1 })))
+	T:Ok("saving one member, a plain array", (Active:Flush():Wait()))
+	T:Ok("a member whose id leaves a gap", (Active:Apply("Join", { UserId = 5000 })))
+	T:Ok("saving it, which is where it is called out", (Active:Flush():Wait()))
+
+	T:Warns("it said the key and what is wrong with the field, once, for the second save only", "'rosterK' folds to state a datastore cannot hold, value.Members is a sparse array", 1)
+	T:Silent("nothing about compaction yet", "cannot be compacted")
+end)
+
 Cases.Case("a pure reducer is never called out", function(T: Case)
 	local Bank = T:Bank()
 	Bank:Seed("pureK", { Gold = 0 })

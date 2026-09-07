@@ -432,7 +432,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 		end
 		if Answer == Bookings.FULL then
 			self:Crowded(Resolved, Rid, Count)
-			return false, REFUSED
+			return false, BUSY
 		end
 		return false, UNRESOLVED
 	end)
@@ -461,17 +461,24 @@ function Store.Confirm(self: Store, Key: KeyLike, Id: string, Kind: string, Fiel
 		end
 
 		local State: any = nil
-		local Ok, Why = self:Written(Resolved, Op, `confirm booking '{Rid}' with '{Kind}'`, function(Record: Record): boolean
-			for _, Existing in Record.Ops do
-				if Existing.Id == Op.Id then
-					return Gen == nil or Existing.Booking == nil or Existing.Booking == Gen
+		local Ok, Why = self:Written(
+			Resolved,
+			Op,
+			`confirm booking '{Rid}' with '{Kind}'`,
+			function(Record: Record): boolean
+				for _, Existing in Record.Ops do
+					if Existing.Id == Op.Id then
+						return Gen == nil or Existing.Booking == nil or Existing.Booking == Gen
+					end
 				end
+				return true
+			end,
+			SPENT,
+			function(Settled: Record): Reason?
+				State = self:Fold(Settled)
+				return nil
 			end
-			return true
-		end, SPENT, function(Settled: Record): Reason?
-			State = self:Fold(Settled)
-			return nil
-		end)
+		)
 
 		if Ok then
 			self:Dropped(Slot, Rid, State)

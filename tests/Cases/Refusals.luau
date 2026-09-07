@@ -112,6 +112,21 @@ Cases.Case("a reducer returning something else is skipped", function(T: Case)
 	T:Is("folding past a reducer that returned a string", Folded.Gold, 5)
 end)
 
+Cases.Case("a reducer that gives back a state for a kind it does not know is called out when the store is built", function(T: Case)
+	Plain(T, "String", Keep)
+
+	T:Warns("it said the reducer answered a kind it does not know", "a kind it does not know", 1)
+end)
+
+Cases.Case("a reducer that refuses or throws on a kind it does not know is not called out", function(T: Case)
+	Plain(T, "String", Adder)
+	Plain(T, "String", function(_State: any, Op: any): any?
+		error(`no handler for '{Op.Kind}'`)
+	end)
+
+	T:Silent("nothing said about either reducer", "a kind it does not know")
+end)
+
 Cases.Case("NewOp refuses junk and owns the reserved fields", function(T: Case)
 	local Make: any = NewOp.New
 	T:Is("a kind that is not a string", pcall(Make, 5), false)
@@ -831,6 +846,7 @@ Cases.Case("a reducer that writes into the state it was given is refused on ever
 	local Ok, Why = Store.Store:Edit("k", "Sneak"):Wait()
 	T:Is("an edit whose reducer wrote into the state it was handed", Ok, false)
 	T:Is("the reason it gives", Why, "Refused")
+	T:Warns("the edit said the reducer threw, the way a session does", "your reducer threw")
 	T:Is("gold after the reducer tried to write into live state", Store:Amount("k"), 11)
 end)
 

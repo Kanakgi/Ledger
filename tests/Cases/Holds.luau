@@ -313,7 +313,7 @@ Cases.Case("a key stops taking holds at the cap", function(T: Case)
 
 	local Ok, Why = Shelf.Store:Reserve("shelf", "Stock", 1, "b3"):Wait()
 	T:Is("the one past the cap", Ok, false)
-	T:Is("the reason", Why, Reasons.Refused)
+	T:Is("the reason, busy rather than sold out", Why, Reasons.Busy)
 	T:Is("units held", Holds(Shelf, "shelf"), 2)
 	T:Warns("it said the key is at the cap", "already holds 2 reservations")
 end)
@@ -522,13 +522,13 @@ Cases.Case("a key with long names stops taking holds before its item is too big 
 	local Field = "LimitedEditionStock"
 	local Shelf = T:Store({ Default = { [Field] = 100000000 }, Reducer = Reducers.Keep, Field = Field })
 
-	local Taken, Refused, Unresolved = 0, 0, 0
+	local Taken, Busy, Unresolved = 0, 0, 0
 	for Index = 1, Sizes.Booked do
 		local Ok, Why = Shelf.Store:Reserve("shelf", Field, 100000, string.format("%064d", Index)):Wait()
 		if Ok then
 			Taken += 1
-		elseif Why == Reasons.Refused then
-			Refused += 1
+		elseif Why == Reasons.Busy then
+			Busy += 1
 		else
 			Unresolved += 1
 		end
@@ -537,7 +537,7 @@ Cases.Case("a key with long names stops taking holds before its item is too big 
 	local Bytes = #game:GetService("HttpService"):JSONEncode(Held)
 
 	T:Ok("holds it took", Taken > 0)
-	T:Ok("holds it turned away once the item was full", Refused > 0)
+	T:Ok("holds it turned away as busy once the item was full", Busy > 0)
 	T:Is("holds it could not answer", Unresolved, 0)
 	T:Is("misses the map counted", Shelf.Store.Bookings.Missed, 0)
 	T:Ok(`the item, {Bytes} bytes, inside the cap`, Bytes <= MemoryStore.MAX_ITEM)

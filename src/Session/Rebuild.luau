@@ -27,6 +27,7 @@ local Errors = require("../Core/Errors")
 local Reasons = require("../Core/Constants/Reasons")
 local Sizes = require("../Core/Constants/Sizes")
 local Measure = require("../Encode/Measure")
+local Storable = require("../Encode/Storable")
 local Compact = require("../Record/Compact")
 local Rules = require("../Record/Rules")
 local Fold = require("../Record/Fold")
@@ -206,7 +207,15 @@ local function Diverged(Live: any, Folded: any, Path: string): string?
 end
 
 local function CheckPurity<S>(self: Session<S>, Stored: Record, Base: S, Folded: S)
-	if not AUDITING or #Stored.Ops == 0 then
+	if not AUDITING then
+		return
+	end
+
+	local Fits, Unstorable = Storable.Structure(Folded)
+	if not Fits then
+		warn(`Ledger: '{self.Key}' folds to state a datastore cannot hold, {Unstorable}. no gaps in arrays, no mixing array and string keys, no nan`)
+	end
+	if #Stored.Ops == 0 then
 		return
 	end
 

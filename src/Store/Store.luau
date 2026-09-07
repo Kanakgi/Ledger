@@ -34,6 +34,7 @@ local Shards = require("../Core/Constants/Shards")
 local Transactions = require("../Core/Constants/Transactions")
 local Shapes = require("../Core/Shapes")
 local Api = require("../Core/Api")
+local Apply = require("../Record/Apply")
 local Compact = require("../Record/Compact")
 local Reconcile = require("../Record/Reconcile")
 local Schema = require("../Record/Schema")
@@ -69,6 +70,7 @@ local MIN_WRITE_BUDGET = 4
 local MIN_HEAVY_BUDGET = 1
 local HEAVY_PENDING = 256
 local RECENT_TALLIES = 256
+local PROBE_KIND = "LedgerUnknownKind"
 
 local TX_SUFFIX = Transactions.SUFFIX
 
@@ -114,6 +116,13 @@ local function WrapSystem(GameReducer: Shapes.Reducer<any>, Initial: any, Steps:
 	return Combined
 end
 
+local function Probed(Name: string, Reducer: Shapes.Reducer<any>, Initial: any)
+	if Apply(Reducer, Initial, { Id = "probe", Kind = PROBE_KIND }) == nil then
+		return
+	end
+	warn(`Ledger: the reducer for '{Name}' gave back a state for a kind it does not know. give back nil for a kind you do not handle`)
+end
+
 local function New<D>(Config: Config<D>): Api.Store<D>
 	local Marked = `{Config.Name}{TX_SUFFIX}`
 	assert(not Registry.Claimed[Config.Name] and not Registry.Claimed[Marked], `a store named '{Config.Name}' already exists in this server`)
@@ -153,6 +162,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 
 	local Initial = MakeInitial(Config.Default)
 	local Steps: { Migration } = Config.Migrations or {}
+	Probed(Config.Name, Config.Reducer :: any, Initial)
 
 	local Body: Types.Fields<D> = {
 		Options = Config :: any,

@@ -26,6 +26,7 @@
 
 local TableUtil = require("../../Util/TableUtil")
 local Clock = require("../../Util/Clock")
+local NoYield = require("../../Util/NoYield")
 local Observer = require("../../Util/Observer")
 local Windows = require("../../Core/Constants/Windows")
 local Sizes = require("../../Core/Constants/Sizes")
@@ -169,7 +170,11 @@ function Store.Applies(self: Store, Op: Op, Record: Record): (boolean, boolean, 
 
 	local Read, Holds, Only, Doubt = pcall(function(): (boolean, boolean, boolean)
 		local Format = self:Format()
-		local Plain = Apply(Format.Reducer, Format:Fold(Schema.Detached(Record)), Op) ~= nil
+		local Ran, Next = NoYield.Try(Format.Reducer, Format:Fold(Schema.Detached(Record)), Op)
+		if not Ran then
+			warn(`Ledger: rejected op '{Op.Kind}', your reducer threw: {tostring(Next)}`)
+		end
+		local Plain = Ran and type(Next) == "table"
 		if not TxStamp.HasPending(Record) then
 			return Plain, false, false
 		end

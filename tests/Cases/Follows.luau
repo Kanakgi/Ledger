@@ -285,9 +285,12 @@ Cases.Case("a follower ticks, backs off while nothing moves, and pushes once whe
 	A.Store:Follow(KEY):Subscribe(function(State: any)
 		table.insert(Pushed, State.Gold)
 	end)
-	T:Ok("the first tick pushed", T:Until(function(): boolean
-		return #Pushed > 0
-	end))
+	T:Ok(
+		"the first tick pushed",
+		T:Until(function(): boolean
+			return #Pushed > 0
+		end)
+	)
 
 	local Ticks = FOLLOW_CAP * 2 // FOLLOW
 	local Refills = Reads(A, function()
@@ -298,9 +301,12 @@ Cases.Case("a follower ticks, backs off while nothing moves, and pushes once whe
 	local Still = #Pushed
 
 	T:Ok("the other server's edit", Fund(B, KEY, 7))
-	T:Ok("the follower pushed the change", T:Until(function(): boolean
-		return #Pushed > 1
-	end))
+	T:Ok(
+		"the follower pushed the change",
+		T:Until(function(): boolean
+			return #Pushed > 1
+		end)
+	)
 
 	T:Is("the first push", Pushed[1], 5)
 	T:Is("pushes over a quiet spell", Still, 1)
@@ -319,9 +325,12 @@ Cases.Case("a follower's ticker stops when the last listener leaves and starts a
 	local Connection = Stream:Subscribe(function()
 		Pushed += 1
 	end)
-	T:Ok("the first tick pushed", T:Until(function(): boolean
-		return Pushed > 0
-	end))
+	T:Ok(
+		"the first tick pushed",
+		T:Until(function(): boolean
+			return Pushed > 0
+		end)
+	)
 	local Copy = A.Store.Copies[KEY]
 	local Ticking = Copy.Ticker ~= nil
 
@@ -352,9 +361,12 @@ Cases.Case("destroying a store stops its followers", function(T: Case)
 	Store:Follow(KEY):Subscribe(function()
 		Pushed += 1
 	end)
-	T:Ok("the first tick pushed", T:Until(function(): boolean
-		return Pushed > 0
-	end))
+	T:Ok(
+		"the first tick pushed",
+		T:Until(function(): boolean
+			return Pushed > 0
+		end)
+	)
 	local Copy = Store.Copies[KEY]
 
 	Store:Destroy()
