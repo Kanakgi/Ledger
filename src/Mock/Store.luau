@@ -199,13 +199,13 @@ function Store.Current(self: Store, Key: string): (any, KeyInfo?)
 		return nil, nil
 	end
 
-	self.Service:Carry("r", self.Name, Key, #Text)
+	self.Service:Carry(Datastore.READING, self.Name, Key, #Text)
 	return Json.Decode(Text), MakeInfo(Mark.Label, Mark.At)
 end
 
 function Store.Put(self: Store, Key: string, Value: any): Entry
 	local Text = Json.Encode(Value)
-	self.Service:Carry("w", self.Name, Key, #Text)
+	self.Service:Carry(Datastore.WRITING, self.Name, Key, #Text)
 	return self:Commit(Key, Text, false)
 end
 

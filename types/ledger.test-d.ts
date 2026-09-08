@@ -19,6 +19,7 @@ interface Ops {
 
 declare const player: Player;
 declare const DataStoreService: DataStoreService;
+declare const MemoryStoreService: MemoryStoreService;
 
 export type SixEntries = Expect<Equal<keyof typeof Ledger, "Reason" | "New" | "NewTyped" | "Id" | "Sweep" | "CloseAll">>;
 export type IdIsDotCalled = Expect<Equal<ThisParameterType<typeof Ledger.Id>, void>>;
@@ -34,6 +35,7 @@ export type NewIsDotCalled = Expect<Equal<ThisParameterType<typeof Ledger.New>, 
 export type CloseAllIsDotCalled = Expect<Equal<ThisParameterType<typeof Ledger.CloseAll>, void>>;
 export type ReducerIsDotCalled = Expect<Equal<ThisParameterType<Ledger.Reducer<Profile>>, void>>;
 export type HookOpenIsDotCalled = Expect<Equal<ThisParameterType<Ledger.Hook["Open"]>, void>>;
+export type HookTakesACache = Expect<Equal<Ledger.Hook["Cache"], ((this: void, name: string) => Ledger.MemoryStoreLike) | undefined>>;
 export type PeekIsColonCalled = Expect<Equal<ThisParameterType<Ledger.Store<Profile>["Peek"]>, unknown>>;
 export type ApplyIsColonCalled = Expect<Equal<ThisParameterType<Ledger.Session<Profile>["Apply"]>, unknown>>;
 export type WaitIsColonCalled = Expect<Equal<ThisParameterType<Ledger.Future<[boolean]>["Wait"]>, unknown>>;
@@ -121,6 +123,14 @@ export function Positives(): void {
 	};
 	const hooked = Ledger.New<Profile>({ Name: "Hooked", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Hook: hook });
 	void hooked;
+
+	const cached: Ledger.Hook = {
+		Open: (name) => DataStoreService.GetDataStore(name),
+		Budget: (kind) => DataStoreService.GetRequestBudgetForRequestType(kind),
+		Cache: (name) => MemoryStoreService.GetHashMap(name),
+	};
+	const caching = Ledger.New<Profile>({ Name: "Caching", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Hook: cached });
+	void caching;
 
 	const session = shop.Expect(player);
 	const [bought, why] = session.Apply("Buy", { Item: "Sword" });

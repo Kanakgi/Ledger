@@ -7,8 +7,10 @@
 
 	The folded state, the stored record, an old version and its history, and whether a name has been
 	applied. Every read answers a value and a reason, so nil always means the read failed and never
-	means empty. Inspect hands back a frozen copy. A Peek with a MaxAge answers the copy of the key
-	this server holds while it is that young, and the shared copy after, with the game's fields only.
+	means empty. Inspect hands back a frozen copy. A Peek with no MaxAge reads the key and answers
+	everything the fold gives back, Ledger's own underscored fields included. A Peek with a MaxAge
+	answers the copy of the key this server holds while it is that young, and the shared copy after,
+	which carries the game's fields only, since those are what a copy is made of.
 
 	Return type: An empty table. It writes Peek, DidApply, History, PeekVersion and Inspect onto the class.
 	Example usage:

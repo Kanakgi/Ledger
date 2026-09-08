@@ -58,7 +58,7 @@ local PASS_SHARE = 4
 
 assert(TOMB < PRUNE, "a delivery id has to outlive the tomb of the key it was delivered to, or a refund could pay twice")
 assert(BOOK + BOOK_MARGIN < REDRIVE, "a reservation has to run out before a transfer does, or stock would be held longer than money")
-assert(BOOK <= MemoryStore.MAX_EXPIRY, "a hold cannot outlive the MemoryStore item it lives in, and the item lives for one BOOK")
+assert(BOOK + BOOK_MARGIN <= MemoryStore.MAX_EXPIRY, "a hold cannot outlive the MemoryStore item it lives in, and the item lives for one BOOK and its margin")
 assert(REAP_GRACE < REAP, "a marker that is already finished goes on the shorter window, and one that is still being decided goes on the longer one")
 assert(
 	STUCK > REAP,

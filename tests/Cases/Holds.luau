@@ -279,7 +279,7 @@ Cases.Case("a hold past the cap is refused where the call was written", function
 	T:Holds("a hold right on the cap", function()
 		Shelf.Store:Reserve("shelf", "Stock", 1, "capfits", { Hold = Windows.BOOK }):Wait()
 	end)
-	T:Throws("a hold past the cap, which is the window the item lives for", function()
+	T:Throws("a hold past the cap, which is the longest hold the item outlives", function()
 		Shelf.Store:Reserve("shelf", "Stock", 1, "caplong", { Hold = Windows.BOOK + 1 })
 	end)
 	T:Throws("a destination, which a hold no longer takes", function()

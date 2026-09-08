@@ -81,9 +81,17 @@ declare namespace Ledger {
 		ListKeysAsync(prefix?: string, pageSize?: number, cursor?: string, excludeDeleted?: boolean): DataStoreKeyPages;
 	}
 
+	interface MemoryStoreLike {
+		GetAsync(key: string): unknown;
+		SetAsync(key: string, value: unknown, expiry: number): unknown;
+		UpdateAsync(key: string, transform: (this: void, current: unknown) => unknown, expiry: number): unknown;
+		RemoveAsync(key: string): void;
+	}
+
 	interface Hook {
 		readonly Open: (this: void, name: string) => DataStoreLike;
 		readonly Budget: (this: void, kind: Enum.DataStoreRequestType) => number;
+		readonly Cache?: (this: void, name: string) => MemoryStoreLike;
 	}
 
 	interface Future<T extends unknown[]> {

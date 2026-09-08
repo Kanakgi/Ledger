@@ -11,7 +11,9 @@
 
 	A confirm reads the hold first and marks its op with the hold, so a name reused after an earlier
 	confirm answers Spent and never the earlier answer. A hold item is kept inside the map's item cap,
-	so a key with long names stops taking holds before the count cap.
+	so a key with long names stops taking holds before the count cap. The item outlives the longest
+	hold it can carry by one margin, so a hold runs out while the item that holds it is still there
+	and the stock it caches survives the hold it was read for.
 
 	A total answers from the sum this server holds while that sum is younger than MaxAge. MaxAge is
 	one TALLY_CACHE unless the caller names another, and a MaxAge of zero always asks. Past that
@@ -175,10 +177,12 @@ local function Fitted(Item: Holding): Holding?
 	return if Measure(Item) <= MemoryStore.MAX_ITEM then Item else nil
 end
 
+local BOOK_KEEP = Windows.BOOK + Windows.BOOK_MARGIN
+
 local function Rewritten(Held: MemoryStoreWrapper, Slot: string, Change: (Holding?) -> Holding?): boolean
 	return (Held:UpdateAsync(Slot, function(Current: any): any
 		return Change(Holdings(Current))
-	end, Windows.BOOK))
+	end, BOOK_KEEP))
 end
 
 local function Waiting(self: Store, Slot: string): number

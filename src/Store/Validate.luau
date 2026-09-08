@@ -5,9 +5,9 @@
 
 	Validate: Refuses each store Ledger.New cannot build.
 
-	It checks the name, the reducer, the default state, the key mode, the migrations and the balance
-	field. A store that is set up wrong throws where it was built. It does not behave wrongly on a key
-	months later.
+	It checks the name, the reducer, the default state, the key mode, the hook, the migrations and the
+	balance field. A store that is set up wrong throws where it was built. It does not behave wrongly
+	on a key months later.
 
 	Return type: A function that throws, and gives back nothing.
 	Example usage:
@@ -67,6 +67,21 @@ local function Named<D>(Options: Config<D>)
 	assert(Options.OnLoadFailed == nil or Options.Keys ~= "String", `OnLoadFailed only fires for Store:Load, which needs Keys to be "Player"`)
 end
 
+local function Hooked<D>(Options: Config<D>)
+	local Hook = Options.Hook
+	if Hook == nil then
+		return
+	end
+
+	assert(type(Hook) == "table", "Hook must be a table of Open, Budget and an optional Cache when you pass one")
+	assert(type(Hook.Open) == "function", "Hook needs Open, a (Name) -> DataStore function")
+	assert(type(Hook.Budget) == "function", "Hook needs Budget, a (RequestType) -> number function")
+	assert(
+		Hook.Cache == nil or type(Hook.Cache) == "function",
+		"Hook Cache must be a (Name) -> MemoryStore map function when you pass one. leave it out to run without a MemoryStore"
+	)
+end
+
 local function Stores<D>(Options: Config<D>)
 	for Key in Options.Default :: any do
 		assert(not (type(Key) == "string" and Storable.Bookkeeping(Key)), `Default key '{tostring(Key)}' uses the '_' prefix reserved for Ledger's bookkeeping`)
@@ -102,6 +117,7 @@ local function Validate<D>(Options: Config<D>)
 	assert(type(Options) == "table", "New takes an options table")
 
 	Named(Options)
+	Hooked(Options)
 	Stores(Options)
 	Stepped(Options)
 	Balanced(Options)
