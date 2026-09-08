@@ -40,7 +40,26 @@ function Pages.New(Rows: { any }, PageSize: number?, Fallback: number, Mark: ((A
 	return Book
 end
 
+function Pages.Chunked(Chunks: { { any } }, Spend: (() -> ())?): Pages
+	local Book: Pages = setmetatable({
+		Rows = {},
+		Chunks = Chunks,
+		At = 1,
+		Size = 1,
+		Mark = nil,
+		Spend = Spend,
+		Cursor = "",
+		IsFinished = #Chunks <= 1,
+	}, Pages) :: any
+	return Book
+end
+
 function Pages.Edge(self: Pages)
+	local Chunks = self.Chunks
+	if Chunks ~= nil then
+		self.IsFinished = self.At >= #Chunks
+		return
+	end
 	self.IsFinished = self.At + self.Size > #self.Rows
 
 	local Mark = self.Mark
@@ -52,6 +71,10 @@ function Pages.Edge(self: Pages)
 end
 
 function Pages.GetCurrentPage(self: Pages): { any }
+	local Chunks = self.Chunks
+	if Chunks ~= nil then
+		return table.clone(Chunks[self.At] or {})
+	end
 	local Last = math.min(self.At + self.Size - 1, #self.Rows)
 	return table.move(self.Rows, self.At, Last, 1, {})
 end
@@ -66,7 +89,7 @@ function Pages.AdvanceToNextPageAsync(self: Pages)
 		Spend()
 	end
 
-	self.At += self.Size
+	self.At += if self.Chunks ~= nil then 1 else self.Size
 	self:Edge()
 end
 
@@ -74,4 +97,5 @@ table.freeze(Pages)
 
 return table.freeze({
 	New = Pages.New,
+	Chunked = Pages.Chunked,
 })

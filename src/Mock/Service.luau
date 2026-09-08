@@ -71,6 +71,7 @@ function Service.New(Options: Options?, Scheduler: Engine.Scheduler?): Service
 		Conflicts = 0,
 		Units = 0,
 		Spent = {},
+		Calls = {},
 		Bytes = 0,
 		Peak = 0,
 		Players = Players,
@@ -142,6 +143,7 @@ function Service.GetRequestBudgetForRequestType(self: Service, Kind: Enum.DataSt
 end
 
 function Service.Spend(self: Service, Kind: Enum.DataStoreRequestType)
+	self.Calls[Kind.Name] = (self.Calls[Kind.Name] or 0) + 1
 	if not self.Throttled then
 		return
 	end
@@ -217,6 +219,7 @@ function Service.Clear(self: Service)
 	self.Bytes = 0
 	self.Peak = 0
 	table.clear(self.Spent)
+	table.clear(self.Calls)
 end
 
 function Service.GetDataStore(self: Service, Name: string, Scope: string?): Types.Store

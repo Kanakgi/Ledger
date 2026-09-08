@@ -43,6 +43,7 @@ export type Reaping = {
 	Horizon: number?,
 	Limit: number?,
 	Shards: number?,
+	Older: { Shard: number, Back: number }?,
 	Afford: (() -> boolean)?,
 	Claim: ((Shard: number) -> Claimed)?,
 }
@@ -55,7 +56,9 @@ type Walk = {
 	Grace: number,
 	Room: number,
 	Looks: number,
+	Looked: number,
 	Reaped: number,
+	Afford: (() -> boolean)?,
 }
 
 local ABSENT: Claimed = { Outcome = Transactions.ABSENT }
@@ -175,8 +178,9 @@ local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number)
 	local Reaped = 0
 	local Looked = 0
 
+	local Afford = Walk.Afford
 	for Index, Txid in Held do
-		if Looked >= Looks or Reaped >= Room then
+		if Looked >= Looks or Reaped >= Room or (Afford ~= nil and not Afford()) then
 			table.move(Held, Index, #Held, #Later + 1, Later)
 			break
 		end
@@ -210,13 +214,12 @@ local function Full(Walk: Walk, Looks: number): boolean
 	return Walk.Reaped >= Walk.Room or Looks <= 0
 end
 
-local function Listed(Walk: Walk, Shard: number, Afford: (() -> boolean)?): (boolean, boolean)
-	local Ok, Pages = Walk.TxStore:ListKeysAsync(Cleanup.Prefix(Shard), Transactions.REAP_PAGE, nil, nil, ONCE)
+local function Listed(Walk: Walk, Prefix: string, Afford: (() -> boolean)?, Looks: number): (boolean, boolean)
+	local Ok, Pages = Walk.TxStore:ListKeysAsync(Prefix, Transactions.REAP_PAGE, nil, nil, ONCE)
 	if not Ok then
 		return false, true
 	end
 
-	local Looks = Walk.Looks
 	local Book = Pages :: DataStoreKeyPages
 	while true do
 		for _, Entry in Book:GetCurrentPage() do
@@ -232,6 +235,7 @@ local function Listed(Walk: Walk, Shard: number, Afford: (() -> boolean)?): (boo
 
 			local Took, Looked = Sweep(Walk, Named, Looks)
 			Walk.Reaped += Took
+			Walk.Looked += Looked
 			Looks -= Looked
 		end
 
@@ -247,7 +251,7 @@ local function Listed(Walk: Walk, Shard: number, Afford: (() -> boolean)?): (boo
 	end
 end
 
-local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): (number, number)
+local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): (number, number, boolean)
 	local Asked: Reaping = Held or {}
 	local Older = Asked.Horizon or Windows.REAP
 	local Walk: Walk = {
@@ -258,7 +262,9 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		Grace = math.min(Older, Windows.REAP_GRACE),
 		Room = Asked.Limit or Transactions.REAP_LIMIT,
 		Looks = 0,
+		Looked = 0,
 		Reaped = 0,
+		Afford = Asked.Afford,
 	}
 	local Afford = Asked.Afford
 	local Claim = Asked.Claim
@@ -266,30 +272,44 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 
 	local Count = math.min(Asked.Shards or Transactions.SHARDS, Transactions.SHARDS)
 	Walk.Looks = math.max(Transactions.REAP_LOOKS, Walk.Room // Count)
+	local Cursor = Asked.Older
+	local Rotated = false
 
 	local Step = 0
 	while Step < Count do
-		if Walk.Reaped >= Walk.Room or (Afford ~= nil and not Afford()) then
+		if Walk.Reaped >= Walk.Room or Walk.Looked >= Walk.Room or (Afford ~= nil and not Afford()) then
 			break
 		end
 
 		local Shard = (Base + Step) % Transactions.SHARDS
 		local Lease: Claimed = if Claim ~= nil then Claim(Shard) else ABSENT
+		local Left = Walk.Room - Walk.Looked
+		local Looks = if Lease.Outcome == Transactions.TAKEN then Left else math.min(Walk.Looks, Left)
+		local Back = if Cursor ~= nil and Cursor.Shard == Shard then Cursor.Back else nil
 		local More, Stopped = false, false
 		if Lease.Outcome ~= Transactions.HELD then
-			More, Stopped = Listed(Walk, Shard, Afford)
+			local Prefixes = Cleanup.Blocks(Shard, Walk.Now, Back)
+			for Index, Prefix in Prefixes do
+				More, Stopped = Listed(Walk, Prefix, Afford, Looks)
+				if Back ~= nil and Index == #Prefixes and not Stopped then
+					Rotated = true
+				end
+				if More or Stopped then
+					break
+				end
+			end
 		end
 		if Lease.Outcome == Transactions.TAKEN and (More or Stopped) then
 			Lease.Release()
 		end
 		if Stopped then
-			return Walk.Reaped, Shard
+			return Walk.Reaped, Shard, Rotated
 		end
 
 		Step += 1
 	end
 
-	return Walk.Reaped, (Base + Step) % Transactions.SHARDS
+	return Walk.Reaped, (Base + Step) % Transactions.SHARDS, Rotated
 end
 
 return table.freeze({

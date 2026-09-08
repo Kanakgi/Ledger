@@ -31,7 +31,7 @@ local Cases = Suite.File("Fleet", { "cache" })
 local SERVERS = 12
 local START = 100
 local SHARDS = Transactions.SHARDS
-local LOOKS = Transactions.REAP_LOOKS
+local ROOM = Transactions.REAP_LIMIT
 
 local function Fleet(T: Case): { Fixture }
 	local Held: { Fixture } = {}
@@ -101,7 +101,7 @@ Cases.Case("a fleet reaping one window lists each shard once, and every other se
 		Lists += Listed.Count
 	end
 
-	T:Is("shards listed by the whole fleet", Lists, SHARDS)
+	T:Is("shards listed by the whole fleet, plus the one older block the rotation lists", Lists, SHARDS + 1)
 	T:Is("units the first server spent, a read and a write per shard and no release", Spent[1], SHARDS * 3)
 	T:Is("units the last server spent, one read per shard", Spent[SERVERS], SHARDS)
 	T:Is("the marker is gone", First:Mark("fleet1"), nil)
@@ -162,7 +162,7 @@ Cases.Case("a shard with more names than one walk looks at is handed down the fl
 	local Shard = 0
 
 	local Planted = 0
-	for _, Count in { LOOKS, LOOKS, LOOKS // 4 } do
+	for _, Count in { ROOM, ROOM, ROOM // 4 } do
 		for _, Id in OnShard(`hand{Planted}x`, Count, Shard) do
 			First:Marker(Id, { Status = "Aborted", Total = 0, Adopted = {} })
 			Planted += 1
@@ -173,15 +173,50 @@ Cases.Case("a shard with more names than one walk looks at is handed down the fl
 
 	local Walks = 0
 	local Reaped = 0
+	local Rotated = 0
 	for _, Held in Servers do
 		local Listed = Listing(Held)
 		Reaped += Held.Store:ReapMarkers()
 		Walks += Listed.Count
+		Rotated += if Held.Store.Reaping.Shard ~= 0 then 1 else 0
 	end
 
-	T:Is("markers planted on one shard", Planted, LOOKS * 2 + LOOKS // 4)
+	T:Is("markers planted on one shard", Planted, ROOM * 2 + ROOM // 4)
 	T:Is("markers the fleet reaped", Reaped, Planted)
-	T:Is("walks the fleet made, three on the full shard and one on each other", Walks, SHARDS - 1 + 3)
+	T:Is("walks the fleet made, three on the full shard, one on each other, and an older block per rotation", Walks, SHARDS - 1 + 3 + Rotated)
+	T:Is("markers left", #First:Marks(), 0)
+end)
+
+Cases.Case("a fleet clears a thousand markers in a round of passes, and what a full walk carried on in the next", function(T: Case)
+	local Servers = Fleet(T)
+	local First = Servers[1]
+	local Planted = 1000
+	for Index = 1, Planted do
+		First:Marker(`round{Index}`, { Status = "Aborted", Total = 0, Adopted = {} })
+	end
+	T:Advance(Windows.REAP_GRACE + 1)
+	for _, Held in Servers do
+		Held:Budget(function(): number
+			return 1000
+		end)
+		Held:MarkerBudget(function(): number
+			return 1000
+		end)
+	end
+
+	local Reaped = 0
+	for _, Held in Servers do
+		Reaped += Held.Store:ReapMarkers()
+	end
+	local Round = Reaped
+
+	T:Advance(Windows.REAP_GRACE + 1)
+	for _, Held in Servers do
+		Reaped += Held.Store:ReapMarkers()
+	end
+
+	T:Ok("most of the markers went in the first round, far past the sixteen a walk used to look at per shard", Round > Planted - SHARDS * 8)
+	T:Is("all of them once the carried names aged past the grace", Reaped, Planted)
 	T:Is("markers left", #First:Marks(), 0)
 end)
 

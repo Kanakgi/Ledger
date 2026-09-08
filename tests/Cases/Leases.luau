@@ -361,8 +361,8 @@ Cases.Case("two servers reaping at once: one lists a shard while the other skips
 	end))
 	One.Store:ReapMarkers()
 
-	T:Is("shards the other server listed while this one held the first, every one but that", Inside, Transactions.SHARDS - 1)
-	T:Is("where the other server's next pass starts, a whole round on", Two.Store.Resume, Cleanup.Mine("nodeB"))
+	T:Is("shards the other server listed while this one held the first, every one but that, plus its older block", Inside, Transactions.SHARDS)
+	T:Is("where the other server's next pass starts, a whole round on", Two.Store.Reaping.Resume, Cleanup.Mine("nodeB"))
 	T:Is("the marker is gone", One:Mark("reap1"), nil)
 	T:Is("its name is off the cleanup list", One:Rolled()["reap1"], nil)
 	T:Is("the money it moved is untouched", Gold(One, "reapB"), 10)
@@ -401,7 +401,7 @@ Cases.Case("a background reap walks one shard a pass, and an operator still gets
 	local Listed = Listing(One)
 	One.Store:ReapMarkers(1)
 	local First = Listed.Count
-	local Onward = One.Store.Resume
+	local Onward = One.Store.Reaping.Resume
 	One.Store:ReapMarkers(1)
 	local Second = Listed.Count - First
 	One.Store:ReapMarkers()
@@ -409,7 +409,7 @@ Cases.Case("a background reap walks one shard a pass, and an operator still gets
 	T:Is("shards a background pass listed with the map down", First, 1)
 	T:Is("the shard its next pass starts on, one past the one it walked", Onward, (Cleanup.Mine("nodeA") + 1) % Transactions.SHARDS)
 	T:Is("shards the pass after that listed", Second, 1)
-	T:Is("shards an operator's reap listed", Listed.Count - First - Second, Transactions.SHARDS)
+	T:Is("shards an operator's reap listed, plus the older block the rotation lists", Listed.Count - First - Second, Transactions.SHARDS + 1)
 	T:Warns("it said the map did not answer", "did not answer")
 end)
 
@@ -442,7 +442,7 @@ Cases.Case("one server with the map down still reaps every shard, over as many p
 	local Seen: { [number]: boolean } = {}
 	local Walked = 0
 	for _ = 1, Transactions.SHARDS do
-		local At = One.Store.Resume or Cleanup.Mine("nodeA")
+		local At = One.Store.Reaping.Resume or Cleanup.Mine("nodeA")
 		if not Seen[At] then
 			Seen[At] = true
 			Walked += 1
@@ -451,7 +451,7 @@ Cases.Case("one server with the map down still reaps every shard, over as many p
 	end
 
 	T:Is("shards it started a pass on, every one of them", Walked, Transactions.SHARDS)
-	T:Is("where it is after a full round", One.Store.Resume, Cleanup.Mine("nodeA"))
+	T:Is("where it is after a full round", One.Store.Reaping.Resume, Cleanup.Mine("nodeA"))
 end)
 
 Cases.Case("a claim that cannot reach the map repairs one followed key a pass and leaves the rest followed", function(T: Case)
@@ -508,8 +508,8 @@ Cases.Case("a crashed holder's lease on a shard runs out and the next pass takes
 	T:Advance(Windows.PASS_LEASE + 1)
 	One.Store:ReapMarkers()
 
-	T:Is("shards listed while a dead server held one", Skipping, Transactions.SHARDS - 1)
-	T:Is("shards listed once its lease ran out", Listed.Count - Skipping, Transactions.SHARDS)
+	T:Is("shards listed while a dead server held one, plus the older block the rotation lists", Skipping, Transactions.SHARDS)
+	T:Is("shards listed once its lease ran out, plus the older block", Listed.Count - Skipping, Transactions.SHARDS + 1)
 end)
 
 Cases.Case("a starved server takes no lease on a shard or a followed key, and Resettle takes none at all", function(T: Case)

@@ -116,7 +116,7 @@ function Sweeper.Reap(self: Sweeper, Mine: number?)
 	local Lists = Held.TxBudget(Enum.DataStoreRequestType.ListAsync)
 	local Reads = Held.TxBudget(Enum.DataStoreRequestType.GetAsync)
 	local Shards = math.clamp(Lists // (Transactions.REAP_LISTS * Windows.PASS_SHARE), 1, Transactions.SHARDS)
-	local Limit = math.clamp(Reads // Windows.PASS_SHARE, 1, Transactions.REAP_LIMIT)
+	local Limit = math.clamp(Reads // (Windows.PASS_SHARE * Transactions.REAP_READS), 1, Transactions.REAP_LIMIT)
 
 	Held.ReapMarkers(Shards, Limit)
 	self.Resume = At + 1

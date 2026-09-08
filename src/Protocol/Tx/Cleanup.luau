@@ -32,12 +32,19 @@ type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 local WIDTH = 10
 local PART_WIDTH = 3
 local SLOT_WIDTH = 2
+local BLOCK_WIDTH = 7
+local BLOCK = 10 ^ (WIDTH - BLOCK_WIDTH)
+local BACK = Windows.STUCK // (BLOCK * Windows.BUCKET) + 2
 
 assert(Transactions.SHARDS <= 10 ^ SLOT_WIDTH, "a cleanup list key writes its shard in two digits, so more shards than that would write keys the reaper cannot read back")
+assert(
+	BLOCK * Windows.BUCKET >= Windows.REAP + Windows.REAP_GRACE + Windows.BUCKET,
+	"a listing block has to hold every minute a marker can still be waiting to be judged, or a pass that lists the current block and the one before it would miss a key"
+)
 
 local DIGITS = string.rep("%d", WIDTH)
 local FORMAT = `{Transactions.RESERVED}%02d:%0{WIDTH}d:%0{PART_WIDTH}d`
-local HEAD = `{Transactions.RESERVED}%02d:`
+local HEAD = `{Transactions.RESERVED}%02d:%0{BLOCK_WIDTH}d`
 local PATTERN = `^{Transactions.RESERVED}%d%d:({DIGITS}):%d+$`
 local PLAIN = `^{Transactions.RESERVED}%d%d:({DIGITS})$`
 
@@ -63,8 +70,24 @@ local function Key(Txid: string, When: number): string
 	return Named(Shard(Txid), When, 1)
 end
 
-local function Prefix(Slot: number): string
-	return string.format(HEAD, Slot)
+local function Block(When: number): number
+	return When // Windows.BUCKET // BLOCK
+end
+
+local function Prefix(Slot: number, Held: number): string
+	return string.format(HEAD, Slot, Held)
+end
+
+local function Blocks(Slot: number, Now: number, Older: number?): { string }
+	local Current = Block(Now)
+	local Held = { Prefix(Slot, Current) }
+	if Now - Current * BLOCK * Windows.BUCKET < Windows.REAP + Windows.REAP_GRACE + Windows.BUCKET then
+		table.insert(Held, Prefix(Slot, Current - 1))
+	end
+	if Older ~= nil and Older >= 2 and Current - Older >= 0 then
+		table.insert(Held, Prefix(Slot, Current - Older))
+	end
+	return Held
 end
 
 local function At(Held: string): number?
@@ -185,9 +208,12 @@ return table.freeze({
 	Shard = Shard,
 	Key = Key,
 	Named = Named,
+	Block = Block,
 	Prefix = Prefix,
+	Blocks = Blocks,
 	At = At,
 	Mine = Mine,
 	Add = Add,
 	Carry = Carry,
+	BACK = BACK,
 })

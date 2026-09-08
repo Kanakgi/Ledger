@@ -89,6 +89,41 @@ Cases.Case("the mock keeps the limits the real service keeps", function(T: Case)
 	T:Is("a value that cannot be encoded at all", Odd, false)
 end)
 
+Cases.Case("a listing that leaves out removed keys pays one request per 512 keys it checks, removed keys included", function(T: Case)
+	local Service = Mock.New({ Players = 200 }, T.Turn)
+	local Store = Service:GetDataStore("Listed")
+	local Lists = Enum.DataStoreRequestType.ListAsync
+	for Index = 1, 1084 do
+		Store:SetAsync(string.format("q:%04d", Index), Index)
+	end
+	for Index = 1, 1056 do
+		Store:RemoveAsync(string.format("q:%04d", Index))
+	end
+
+	local function Walk(Exclude: boolean): (number, number)
+		local Before = Service:GetRequestBudgetForRequestType(Lists)
+		local Pages = Store:ListKeysAsync("q:", 50, nil, Exclude)
+		local Keys = #Pages:GetCurrentPage()
+		while not Pages.IsFinished do
+			Pages:AdvanceToNextPageAsync()
+			Keys += #Pages:GetCurrentPage()
+		end
+		return Before - Service:GetRequestBudgetForRequestType(Lists), Keys
+	end
+
+	local Requests, Keys = Walk(true)
+	local Shown, Every = Walk(false)
+	T:Advance(Datastore.KEEP_WINDOW + 1)
+	local Later, Live = Walk(true)
+
+	T:Is("requests to list past 1,056 removed keys, one per 512 checked, as measured on the live service", Requests, 3)
+	T:Is("keys it answered, the live ones", Keys, 28)
+	T:Is("requests when removed keys are shown, one per page of 50", Shown, 22)
+	T:Is("keys it answered then, every one", Every, 1084)
+	T:Is("requests once the removed keys have aged out of the store", Later, 1)
+	T:Is("keys it answered then", Live, 28)
+end)
+
 Cases.Case("the mock ages versions out by time rather than by count", function(T: Case)
 	local Store = Mock.New({ Throttled = false }, T.Turn):GetDataStore("Kept")
 

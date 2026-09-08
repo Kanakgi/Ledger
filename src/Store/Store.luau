@@ -130,6 +130,14 @@ local function Batching(Every: number?): Types.Batched?
 	return { Every = Every, Queued = {}, Flushing = {}, Ticker = nil }
 end
 
+local function Rotation(): Types.Reaping
+	return { Resume = nil, Shard = 0, Back = 2 }
+end
+
+local function Metering(): Types.Meter
+	return { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0, Unbooked = 0, Crowded = 0, Uncopied = 0 }
+end
+
 local function Ticking(Built: Store)
 	local Bumps = Built.Bumps
 	if Bumps == nil then
@@ -211,8 +219,8 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 		Sweep = Registry.Sweep(),
 		Sweeping = nil,
 		Staleness = Observer.New(true) :: Observer.Subject<string>,
-		Meter = { Skipped = 0, At = 0, Records = 0, Markers = 0, Swollen = 0, Said = 0, Unbooked = 0, Crowded = 0, Uncopied = 0 },
-		Resume = nil,
+		Meter = Metering(),
+		Reaping = Rotation(),
 		Closed = false,
 	}
 	local Built = setmetatable(Body, Store)

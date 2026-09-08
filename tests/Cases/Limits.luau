@@ -36,7 +36,7 @@ local SWEEP_LIMIT = 256
 local SEEN_LIMIT = 2048
 local MAX_PENDING = 4096
 local RECOVER_LIMIT = 32
-local REAP_LIMIT = 64
+local REAP_LIMIT = Transactions.REAP_LIMIT
 local MAX_DEPTH = 64
 local MAX_LEGS = 4
 
@@ -290,7 +290,7 @@ Cases.Case("a reap pass stops listing when the list budget runs out", function(T
 
 	T:Is("markers it took off an empty store", Reaped, 0)
 	T:Is("lists it made before the lane ran short", Tx.Spent - Before, 1)
-	T:Is("the shard it hands back, the first it could not afford", Bank.Store.Resume, (Cleanup.Mine(Bank.Store.Node) + 1) % Transactions.SHARDS)
+	T:Is("the shard it hands back, the first it could not afford", Bank.Store.Reaping.Resume, (Cleanup.Mine(Bank.Store.Node) + 1) % Transactions.SHARDS)
 end)
 
 Cases.Case("a list that fails ends the reap pass and hands the same shard back", function(T: Case)
@@ -303,7 +303,7 @@ Cases.Case("a list that fails ends the reap pass and hands the same shard back",
 
 	T:Is("the fault fired", Spec.Fired, 1)
 	T:Is("attempts the list made, one and no retry", Tx.Spent - Before, 1)
-	T:Is("the shard it hands back, the one it could not list", Bank.Store.Resume, Cleanup.Mine(Bank.Store.Node))
+	T:Is("the shard it hands back, the one it could not list", Bank.Store.Reaping.Resume, Cleanup.Mine(Bank.Store.Node))
 end)
 
 Cases.Case("a reap pass asks the list budget again before it turns a page", function(T: Case)
@@ -327,7 +327,7 @@ Cases.Case("a reap pass asks the list budget again before it turns a page", func
 	Bank.Store:ReapMarkers()
 
 	T:Is("lists it made, the first page and not the second", Lists, 1)
-	T:Is("the shard it hands back, the one it was still on", Bank.Store.Resume, Shard)
+	T:Is("the shard it hands back, the one it was still on", Bank.Store.Reaping.Resume, Shard)
 end)
 
 local function Lanes(Bank: Fixture, Lists: number, Reads: number)
@@ -398,7 +398,7 @@ Cases.Case("the sweep sizes what a reap pass may take from the read lane", funct
 
 	T:Sweep()
 
-	T:Is("husks left after a pass allowed a quarter of forty reads", #Bank:Marks(), 30)
+	T:Is("husks left after a pass allowed a quarter of forty reads, at three reads a marker", #Bank:Marks(), 40 - (Windows.PASS_SHARE * 10) // (Windows.PASS_SHARE * Transactions.REAP_READS))
 end)
 
 local function Stranded(Store: Fixture, Key: string, To: string, Count: number, Now: number)

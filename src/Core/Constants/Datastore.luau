@@ -22,6 +22,7 @@ return table.freeze({
 	MAX_KEY = 50,
 	KEEP_WINDOW = 30 * DAY,
 	PAGE_LIMIT = 50,
+	LIST_SCAN = 512,
 	CONFLICT_LIMIT = 32,
 
 	REFILL_WINDOW = 60,

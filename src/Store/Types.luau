@@ -165,6 +165,12 @@ export type Queued = {
 	Threads: { thread },
 }
 
+export type Reaping = {
+	Resume: number?,
+	Shard: number,
+	Back: number,
+}
+
 export type Batched = {
 	Every: number,
 	Queued: { [string]: Queued },
@@ -210,7 +216,7 @@ export type Fields<D> = {
 	Sweeping: Swept?,
 	Staleness: Observer.Subject<string>,
 	Meter: Meter,
-	Resume: number?,
+	Reaping: Reaping,
 	Closed: boolean,
 }
 

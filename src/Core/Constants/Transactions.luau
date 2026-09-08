@@ -47,8 +47,9 @@ return table.freeze({
 	ROLL_LIMIT = 256,
 	PARTS = 64,
 
-	REAP_LIMIT = 64,
+	REAP_LIMIT = 256,
 	REAP_LOOKS = 16,
+	REAP_READS = 3,
 	REAP_PAGE = 50,
 	REAP_FLOOR = 18,
 	REAP_LISTS = 2,

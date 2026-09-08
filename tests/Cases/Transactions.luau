@@ -399,8 +399,8 @@ Cases.Case("a pass costs the same however many markers are stuck", function(T: C
 
 	T:Is("none of them can be reaped", Reaped, 0)
 	T:Is("the pass costs less than one call for each stuck marker", Cost < Stuck, true)
-	T:Is("and no more per shard than a list, a roll key, its looks and the two writes that carry the rest on", Cost <= Transactions.SHARDS * (Transactions.REAP_LOOKS + 4), true)
-	T:Is("what it spent on the store the records live in", Records <= Transactions.SHARDS * Transactions.REAP_LOOKS, true)
+	T:Is("and no more than the room of looks a pass has, plus a list, a roll key and the two writes that carry the rest on per shard", Cost <= Transactions.REAP_LIMIT + Transactions.SHARDS * 5, true)
+	T:Is("what it spent on the store the records live in", Records <= Transactions.REAP_LIMIT * Transactions.MAX_LEGS, true)
 	T:Is("every one of them is still there", #Bank:Marks(), Stuck)
 end)
 
@@ -419,7 +419,7 @@ end
 
 Cases.Case("a pass that stopped at its cap starts the next one where it stopped", function(T: Case)
 	local Bank = T:Bank()
-	local Base = Cleanup.Mine()
+	local Base = Cleanup.Mine(Bank.Store.Node)
 	local Fronts = 4
 
 	local function Bury(Held: { string })
@@ -428,6 +428,9 @@ Cases.Case("a pass that stopped at its cap starts the next one where it stopped"
 		end
 	end
 
+	local Room = Transactions.REAP_LOOKS * Fronts
+	Bank.Store.Leases = nil
+
 	for Step = 0, Fronts - 1 do
 		Bury(Hashed((Base + Step) % Transactions.SHARDS, Transactions.REAP_LOOKS * 2, `front{Step}x`))
 	end
@@ -435,10 +438,10 @@ Cases.Case("a pass that stopped at its cap starts the next one where it stopped"
 	Bury(Last)
 
 	T:Advance(Windows.REAP + 600)
-	local First = Bank.Store:ReapMarkers()
+	local First = Bank.Store:ReapMarkers(nil, Room)
 
 	T:Advance(Windows.REAP_GRACE + 60)
-	local Second = Bank.Store:ReapMarkers()
+	local Second = Bank.Store:ReapMarkers(nil, Room)
 
 	local Standing = 0
 	for _, Named in Bank:Marks() do
@@ -447,9 +450,84 @@ Cases.Case("a pass that stopped at its cap starts the next one where it stopped"
 		end
 	end
 
-	T:Is("the first pass takes its fill", First, 64)
-	T:Is("the second takes another", Second, 64)
+	T:Is("the first pass takes its fill", First, Room)
+	T:Is("the second takes another", Second, Room)
 	T:Is("the shard at the far end of the walk, which the first pass never reached", Standing, 0)
+end)
+
+Cases.Case("a reap pass on a shard costs the same however many roll keys it removed this month", function(T: Case)
+	local Bank = T:Bank()
+	local Shard = Cleanup.Mine(Bank.Store.Node)
+	local Lists = Enum.DataStoreRequestType.ListAsync
+	local Days = 2 * Windows.DAY
+
+	local function Removed(Back: number, Count: number)
+		local Parts = 5
+		for Index = 0, Count - 1 do
+			local Named = Cleanup.Named(Shard, T:Now() - Back - (Index // Parts) * Windows.BUCKET, Index % Parts + 1)
+			Bank.DirectMarks:UpdateAsync(Named, function(): string
+				return Mark.Pack({})
+			end)
+			Bank.DirectMarks:RemoveAsync(Named)
+		end
+	end
+
+	local function Listed(Body: () -> ()): number
+		local Before = T.Service.Calls[Lists.Name] or 0
+		Body()
+		return (T.Service.Calls[Lists.Name] or 0) - Before
+	end
+
+	Bank:MarkerBudget(function(): number
+		return 1000
+	end)
+	Bank:Budget(function(): number
+		return 1000
+	end)
+	Removed(Days, 1500)
+	for _, Id in Hashed(Shard, 2, "monthx") do
+		Bank:Marker(Id, { Status = "Aborted", Total = 0, Adopted = {} })
+	end
+	T:Advance(Windows.REAP_GRACE + 1)
+
+	local Cheap = Listed(function()
+		Bank.Store:ReapMarkers(1)
+	end)
+	local Gone = #Bank:Marks()
+
+	Removed(Windows.REAP_GRACE + Windows.BUCKET, 1500)
+	Bank.Store.Reaping.Resume = Shard
+	local Dear = Listed(function()
+		Bank.Store:ReapMarkers(1)
+	end)
+
+	T:Is("list requests for a shard with 1,500 removed keys two days back, the block they sit in is not listed", Cheap <= 2, true)
+	T:Is("the markers it found anyway", Gone, 0)
+	T:Is("list requests once 1,500 removed keys sit in the block it does list, one per 512 checked", Dear, 3)
+end)
+
+Cases.Case("a sweep asks the budget before every marker, so a pass stops inside a shard when reads run short", function(T: Case)
+	local Bank = T:Bank()
+	local Shard = Cleanup.Mine(Bank.Store.Node)
+	for _, Id in Hashed(Shard, 40, "shortx") do
+		Bank:Marker(Id, { Status = "Aborted", Total = 0, Adopted = {} })
+	end
+	T:Advance(Windows.REAP_GRACE + 1)
+
+	local Reads = 0
+	Bank:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
+		if Kind == Enum.DataStoreRequestType.GetAsync then
+			Reads += 1
+			return math.max(0, Transactions.REAP_FLOOR + 10 - Reads)
+		end
+		return 1000
+	end)
+
+	local Reaped = Bank.Store:ReapMarkers(1)
+
+	T:Ok("it reaped some", Reaped > 0)
+	T:Ok("and stopped inside the shard when the read budget reached its floor", Reaped < 40)
+	T:Is("the rest are still there for the next pass", #Bank:Marks(), 40 - Reaped)
 end)
 
 Cases.Case("a drive slower than a transaction may writes its name on the list again", function(T: Case)
@@ -1801,10 +1879,15 @@ Cases.Case("a marker whose keys cannot be read waits for the horizon rather than
 	local Early = Bank:Mark("unpref1")
 
 	T:Advance(Suite.Horizons.PRUNE)
-	Bank.Store:ReapMarkers()
+	local Passes = 0
+	while Bank:Mark("unpref1") ~= nil and Passes < Cleanup.BACK * Transactions.SHARDS do
+		Passes += 1
+		Bank.Store:ReapMarkers(1)
+	end
 
 	T:Is("a marker whose keys carry no length in front, while it is still young", type(Early), "table")
 	T:Is("the same marker once nothing has touched it for the horizon", Bank:Mark("unpref1"), nil)
+	T:Ok("the rotation reached the block its name sat in, inside one round of every shard and every block", Passes < Cleanup.BACK * Transactions.SHARDS)
 	T:Is("gold is untouched either way", Bank:Amount("unprefixed"), 100)
 	T:Warns("it said the keys could not be read", "names no keys Ledger can read", 2)
 end)
@@ -1959,10 +2042,15 @@ Cases.Case("a marker naming no keys is taken off once nothing has touched it for
 	local Early = Bank:Mark("stuckblind1")
 
 	T:Advance(Suite.Horizons.PRUNE)
-	Bank.Store:ReapMarkers()
+	local Passes = 0
+	while Bank:Mark("stuckblind1") ~= nil and Passes < Cleanup.BACK * Transactions.SHARDS do
+		Passes += 1
+		Bank.Store:ReapMarkers(1)
+	end
 
 	T:Is("it is kept while it is young enough to be worth reading again", type(Early), "table")
 	T:Is("it is taken off once nothing has touched it for the horizon", Bank:Mark("stuckblind1"), nil)
+	T:Ok("the rotation reached it inside one round of every shard and every block", Passes < Cleanup.BACK * Transactions.SHARDS)
 	T:Is("its name on the cleanup list", Bank:Rolled()["stuckblind1"], nil)
 	T:Warns("it said the marker was written off", "can read and nothing has touched it", 1)
 end)

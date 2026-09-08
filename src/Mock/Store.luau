@@ -310,6 +310,7 @@ function Store.ListKeysAsync(self: Store, Prefix: string?, PageSize: number?, Cu
 	local Wanted = Prefix or ""
 	local Hiding = ExcludeDeleted == true
 	local Names = self.Names
+	local Floor = Clock.Now() - Datastore.KEEP_WINDOW
 
 	local Found: { string } = {}
 	for Index = Spot(Names, Wanted), #Names do
@@ -319,23 +320,48 @@ function Store.ListKeysAsync(self: Store, Prefix: string?, PageSize: number?, Cu
 		end
 
 		local Slot = self.Slots[Key]
-		if Slot ~= nil and (Slot.Live ~= nil or not Hiding) then
+		local Mark = Newest(Slot)
+		if Slot ~= nil and Mark ~= nil and (Slot.Live ~= nil or Mark.Written >= Floor) then
 			table.insert(Found, Key)
 		end
 	end
 	table.sort(Found, Ordered)
 
 	local From = Resume(Cursor)
-	local Rows: { any } = {}
-	for Index = From, #Found do
-		table.insert(Rows, { KeyName = Found[Index] })
+	local function Spend()
+		self:Reach(Enum.DataStoreRequestType.ListAsync)
 	end
 
-	return Pages.New(Rows, PageSize, 50, function(At: number): string
-		return string.format(CURSOR, From + At - 1)
-	end, function()
-		self:Reach(Enum.DataStoreRequestType.ListAsync)
-	end)
+	if not Hiding then
+		local Rows: { any } = {}
+		for Index = From, #Found do
+			table.insert(Rows, { KeyName = Found[Index] })
+		end
+		return Pages.New(Rows, PageSize, 50, function(At: number): string
+			return string.format(CURSOR, From + At - 1)
+		end, Spend)
+	end
+
+	local Size = math.clamp(if PageSize ~= nil and PageSize > 0 then PageSize else 50, 1, Datastore.PAGE_LIMIT)
+	local Chunks: { { any } } = {}
+	local Page: { any } = {}
+	local Scanned = 0
+	for Index = From, #Found do
+		local Key = Found[Index]
+		Scanned += 1
+		if self.Slots[Key].Live ~= nil then
+			table.insert(Page, { KeyName = Key })
+		end
+		if #Page >= Size or Scanned >= Datastore.LIST_SCAN then
+			table.insert(Chunks, Page)
+			Page = {}
+			Scanned = 0
+		end
+	end
+	if Scanned > 0 or #Chunks == 0 then
+		table.insert(Chunks, Page)
+	end
+	return Pages.Chunked(Chunks, Spend)
 end
 
 table.freeze(Store)

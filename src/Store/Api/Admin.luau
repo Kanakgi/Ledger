@@ -33,6 +33,7 @@ local Kinds = require("../../Core/Constants/Kinds")
 local Recovery = require("../../Protocol/Recovery")
 local Transfer = require("../../Protocol/Transfer")
 local Transactions = require("../../Core/Constants/Transactions")
+local Cleanup = require("../../Protocol/Tx/Cleanup")
 local Tx = require("../../Protocol/Tx")
 local Registry = require("../Registry")
 local Write = require("./Write")
@@ -71,7 +72,8 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 	local Reads = Enum.DataStoreRequestType.GetAsync
 	local Lists = Enum.DataStoreRequestType.ListAsync
 
-	local Ok, Reaped, Next = pcall(function(): (number, number)
+	local Reaping = self.Reaping
+	local Ok, Reaped, Next, Rotated = pcall(function(): (number, number, boolean)
 		return Tx.Reap(self.TxWrapper, function(Store: string): Log.Log?
 			for _, Known in Registry.Stores do
 				if Known.Wrapper.Name == Store then
@@ -81,9 +83,10 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 			return nil
 		end, {
 			Node = self.Node,
-			From = self.Resume,
+			From = Reaping.Resume,
 			Shards = Shards,
 			Limit = Limit,
+			Older = Reaping,
 			Afford = function(): boolean
 				return self:TxAffords(Reads, Transactions.REAP_FLOOR) and self:Affords(Reads, Transactions.REAP_FLOOR) and self:TxAffords(Lists, Transactions.REAP_LISTS)
 			end,
@@ -93,7 +96,13 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 		})
 	end)
 	if Ok then
-		self.Resume = Next
+		Reaping.Resume = Next
+		if Rotated then
+			Reaping.Shard = (Reaping.Shard + 1) % Transactions.SHARDS
+			if Reaping.Shard == 0 then
+				Reaping.Back = if Reaping.Back + 1 >= Cleanup.BACK then 2 else Reaping.Back + 1
+			end
+		end
 		return Reaped
 	end
 
