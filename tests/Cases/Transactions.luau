@@ -2350,6 +2350,29 @@ Cases.Case("a transaction whose leg carries a buffer is the same transaction whe
 	T:Silent("no claim the name was used for different terms", "already used for different keys")
 end)
 
+Cases.Case("a marker an older build left without its key names is filled in rather than left unprovable", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("older", { Gold = 100, Touches = 0 })
+	Bank:Seed("newer", { Gold = 0, Touches = 0 })
+
+	Bank:Marker("legacy", { Status = "Pending", Gen = "one", At = T:Now() })
+
+	local Legs = {
+		{ Key = "older", Kind = "Give", Fields = { Amount = -25 } },
+		{ Key = "newer", Kind = "Give", Fields = { Amount = 25 } },
+	}
+	local Went = Bank.Store:Tx("legacy", Legs):Wait()
+	local Held = Bank:Mark("legacy")
+
+	T:Ok("the transaction answered rather than throwing on a field the marker never had", Went ~= nil)
+	T:Ok("the marker, still there to read", Held ~= nil)
+	T:Is("the keys it now names", type(Held.Keys), "string")
+	T:Is("the terms it now names", type(Held.Terms), "string")
+	T:Is("the leg count two places read without checking", type(Held.Total), "number")
+	T:Is("the set of legs that have reported", type(Held.Adopted), "table")
+	T:Ok("keys that name the two this transaction touched", Held.Keys == Mark.Pack({ Mark.Of(Bank.Data, "older"), Mark.Of(Bank.Data, "newer") }))
+end)
+
 Cases.Case("a transaction on the most keys it may touch moves every one of them", function(T: Case)
 	local Bank = T:Bank()
 	for _, Key in { "a", "b", "c", "d" } do

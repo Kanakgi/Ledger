@@ -9,6 +9,13 @@
 	touched for longer than a transaction may take. Adopt records that a leg has reported. No marker
 	means aborted. A marker goes away only once every leg has reported.
 
+	Create also fills in what an older build's marker was never written with. A marker that does not
+	name its keys cannot be shown to be finished by reading them, so a pass would warn about it every
+	time and take it off once it went stale, and a leg still parked on a key would settle as
+	cancelled. Create is holding the right names when it meets one, so it writes them down. The same
+	goes for the leg count and the set of legs that have reported, which two places read without
+	checking they are there.
+
 	The handles it keeps to other stores belong to the hook they were opened on, and so does the count
 	of how many are left. A handle that stops being cached stops queueing its writes in order.
 
@@ -138,6 +145,19 @@ local function Create(TxStore: DataStoreWrapper, Txid: string, Total: number, Ke
 		if type(Current.Terms) == "string" and Current.Terms ~= Terms then
 			Clash = true
 			return nil
+		end
+
+		if type(Current.Keys) ~= "string" then
+			Current.Keys = Keys
+		end
+		if type(Current.Terms) ~= "string" then
+			Current.Terms = Terms
+		end
+		if type(Current.Total) ~= "number" then
+			Current.Total = Total
+		end
+		if type(Current.Adopted) ~= "table" then
+			Current.Adopted = {}
 		end
 
 		return Current
