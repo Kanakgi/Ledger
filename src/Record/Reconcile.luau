@@ -7,7 +7,12 @@
 
 	A stored value always wins, so a player coming back keeps what they had.
 
-	Return type: A function that gives back the stored table.
+	It copies rather than writes into what it was given, and only once it has something to add, so a
+	snapshot that already holds every default comes straight back and nothing is copied at all. That
+	matters because what it is handed is usually the record's own snapshot: writing into it would
+	mean reading a record changed it, and a second read would find a different table than the first.
+
+	Return type: A function that gives back the stored table, or a copy of it with the defaults in.
 	Example usage:
 		local Reconcile = require("./Reconcile")
 		local Ready = Reconcile(Default, Stored)
@@ -20,15 +25,26 @@ local function Reconcile(Defaults: any, Stored: any): any
 		return Stored
 	end
 
+	local Next = Stored
 	for Key, Value in Defaults do
-		if Stored[Key] == nil then
-			Stored[Key] = TableUtil.DeepCopy(Value)
+		local Theirs = Next[Key]
+		if Theirs == nil then
+			if Next == Stored then
+				Next = table.clone(Stored)
+			end
+			Next[Key] = TableUtil.DeepCopy(Value)
 		elseif type(Value) == "table" and #Value == 0 then
-			Reconcile(Value, Stored[Key])
+			local Inner = Reconcile(Value, Theirs)
+			if Inner ~= Theirs then
+				if Next == Stored then
+					Next = table.clone(Stored)
+				end
+				Next[Key] = Inner
+			end
 		end
 	end
 
-	return Stored
+	return Next
 end
 
 return Reconcile
