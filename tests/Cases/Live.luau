@@ -119,6 +119,23 @@ Cases.Case("an apply the leg cannot overturn stays accepted", function(T: Case)
 	T:Is("it is queued for the next save", #Active.Pending, 1)
 end)
 
+Cases.Case("a capture folds the key and leaves the sweep alone, where a peek hands it over", function(T: Case)
+	local Bank = T:Bank()
+	Bank:Seed("evidence", { Gold = 100 })
+	Bank:Park("evidence", { Id = "tx:evidence1:1", Kind = "Give", Amount = -30, Tx = "evidence1" })
+
+	local Held = Bank.Store:Capture("evidence"):Wait()
+	local Quiet = Bank.Store.Sweep.Count
+
+	local Seen = Bank.Store:Peek("evidence"):Wait()
+	local Loud = Bank.Store.Sweep.Count
+
+	T:Is("gold a capture reads, with the parked leg skipped", Held.Gold, 100)
+	T:Is("gold a peek reads, the same fold", Seen.Gold, 100)
+	T:Is("keys the sweep was following after the capture", Quiet, 0)
+	T:Is("keys it is following after the peek found the parked leg", Loud, 1)
+end)
+
 Cases.Case("an apply is refused while two transactions are parked", function(T: Case)
 	local Shop = T:Market()
 

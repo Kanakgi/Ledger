@@ -10,7 +10,15 @@
 	means empty. Inspect hands back a frozen copy. A Peek with a MaxAge answers the copy of the key
 	this server holds while it is that young, and the shared copy after, with the game's fields only.
 
-	Return type: An empty table. It writes Peek, DidApply, History, PeekVersion and Inspect onto the class.
+	Peek and DidApply hand a key to the recovery sweep when they find a transaction parked on it or
+	money set aside, so a read repairs the key a moment later. That is Ledger healing itself and it
+	is what those two are for. It is also the wrong thing to do to a key someone was sent to explain,
+	since the state they were asked about is gone and the read did it. Capture and Inspect fold and
+	read without touching anything, so a capture can be taken before anything else runs. Capture
+	answers what Peek answers, PeekVersion is the same read against an older version, and Inspect
+	hands back the record underneath.
+
+	Return type: An empty table. It writes Peek, Capture, DidApply, History, PeekVersion and Inspect onto the class.
 	Example usage:
 		local Read = require("./Read")
 		local State = self:Peek(1):Wait()
@@ -78,6 +86,14 @@ function Store.Peek(self: Store, Key: KeyLike, MaxAge: number?): Future<any?, Re
 			return Copy.State, nil
 		end
 		return self:Copied(Copy, Now, Age == 0, self:Recorded(Resolved))
+	end)
+end
+
+function Store.Capture(self: Store, Key: KeyLike): Future<any?, Reason?>
+	local Resolved = self:Resolve(Key, "Capture")
+
+	return Reading("capture", Resolved, function(): any
+		return self:Fold(self:ReadRecord(Resolved))
 	end)
 end
 

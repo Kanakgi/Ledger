@@ -296,6 +296,7 @@ export type StoreImpl<D> = {
 	WaitForLoaded: (self: Store<D>, Player: Player) -> Session<D>?,
 	Read: (self: Store<D>, Player: Player) -> D?,
 	Peek: (self: Store<D>, Key: KeyLike, MaxAge: number?) -> Future<D?, Reason?>,
+	Capture: (self: Store<D>, Key: KeyLike) -> Future<D?, Reason?>,
 	Follow: (self: Store<D>, Key: KeyLike) -> Observer.Observer<D>,
 	Inspect: (self: Store<D>, Key: KeyLike) -> Future<Record?, Reason?>,
 	DidApply: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean?, Reason?>,

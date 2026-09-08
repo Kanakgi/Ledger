@@ -77,6 +77,7 @@ type StoreCommon<D, F> = {
 	IsLoaded: (self: any, Player: Player) -> boolean,
 	Read: (self: any, Player: Player) -> D?,
 	Peek: (self: any, Key: KeyLike, MaxAge: number?) -> Future<D?, Reason?>,
+	Capture: (self: any, Key: KeyLike) -> Future<D?, Reason?>,
 	Follow: (self: any, Key: KeyLike) -> Observer<D>,
 	Inspect: (self: any, Key: KeyLike) -> Future<Record<D>?, Reason?>,
 	DidApply: (self: any, Key: KeyLike, Id: string) -> Future<boolean?, Reason?>,

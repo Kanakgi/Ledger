@@ -11,6 +11,7 @@ developer's hands.
 
 | call | safe | why |
 |---|---|---|
+| `Capture` | **yes** | folds the key and answers the state, touches nothing |
 | `Inspect` | **yes** | reads the record, copies it, freezes it, touches nothing |
 | `History` | **yes** | lists versions |
 | `PeekVersion` | **yes** | folds an old version, read only |
@@ -25,6 +26,9 @@ repairs the key: a stranded transfer is redelivered or refunded, a parked leg is
 you were sent to explain is gone, and you caused it. Neither is wrong, it is Ledger healing itself,
 but it must happen **after** the capture and it must be recorded as something you did.
 
+`Capture` is `Peek` without that. Same fold, same answer, no sweep. Reach for it whenever you want
+the state and are not ready for the key to be repaired yet.
+
 ## The capture
 
 Run this first, in this order, and give the whole output to the developer before analysing any of it.
@@ -33,10 +37,12 @@ Run this first, in this order, and give the whole output to the developer before
 local Key = 12345                                  -- the UserId, as given
 
 local Record = Store:Inspect(Key):Wait()           -- the evidence
+local State = Store:Capture(Key):Wait()            -- what it folds to
 local Versions = Store:History(Key, 100):Wait()    -- the timeline
 
 print("captured at", os.time())
 print("record", Record)
+print("state", State)
 print("versions", Versions)
 print("online here", Store:IsLoaded(game:GetService("Players"):GetPlayerByUserId(Key)))
 ```
