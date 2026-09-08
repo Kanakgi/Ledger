@@ -25,6 +25,7 @@ local DataStoreWrapper = require("../../Util/DataStoreWrapper")
 local Shapes = require("../../Core/Shapes")
 local Transactions = require("../../Core/Constants/Transactions")
 local Windows = require("../../Core/Constants/Windows")
+local Ids = require("../../Encode/Ids")
 local Mark = require("../../Encode/Mark")
 local Log = require("../../Record/Log")
 local LogTypes = require("../../Record/Types")
@@ -37,13 +38,19 @@ type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 type Lookup = Types.Lookup
 type Claimed = Types.Claimed
 
+export type Bookmark = {
+	Shard: number,
+	Prefix: string,
+	Cursor: string,
+}
+
 export type Reaping = {
 	Node: string?,
 	From: number?,
 	Horizon: number?,
 	Limit: number?,
 	Shards: number?,
-	Older: { Shard: number, Back: number }?,
+	Older: { Shard: number, Back: number, Cursor: Bookmark? }?,
 	Afford: (() -> boolean)?,
 	Claim: ((Shard: number) -> Claimed)?,
 }
@@ -51,6 +58,8 @@ export type Reaping = {
 type Walk = {
 	TxStore: DataStoreWrapper,
 	Lookup: Lookup,
+	Node: string,
+	Shard: number,
 	Now: number,
 	Older: number,
 	Grace: number,
@@ -166,6 +175,11 @@ local function Gone(Walk: Walk, Txid: string): (boolean, boolean)
 end
 
 local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number)
+	local Afford = Walk.Afford
+	if Looks <= 0 or (Afford ~= nil and not Afford()) then
+		return 0, 0
+	end
+
 	local Read, Packed = Walk.TxStore:GetAsync(Named)
 	if not Read or type(Packed) ~= "string" then
 		return 0, 0
@@ -178,7 +192,6 @@ local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number)
 	local Reaped = 0
 	local Looked = 0
 
-	local Afford = Walk.Afford
 	for Index, Txid in Held do
 		if Looked >= Looks or Reaped >= Room or (Afford ~= nil and not Afford()) then
 			table.move(Held, Index, #Held, #Later + 1, Later)
@@ -196,6 +209,10 @@ local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number)
 		end
 	end
 
+	if Looked == 0 and #Held > 0 then
+		return 0, 0
+	end
+
 	for _, Txid in Kept do
 		table.insert(Later, Txid)
 	end
@@ -204,7 +221,7 @@ local function Sweep(Walk: Walk, Named: string, Looks: number): (number, number)
 		Walk.TxStore:RemoveAsync(Named)
 		return Reaped, Looked
 	end
-	if Cleanup.Carry(Walk.TxStore, Later) then
+	if Cleanup.Carry(Walk.TxStore, Walk.Shard, Walk.Node, Later) then
 		Walk.TxStore:RemoveAsync(Named)
 	end
 	return Reaped, Looked
@@ -214,17 +231,17 @@ local function Full(Walk: Walk, Looks: number): boolean
 	return Walk.Reaped >= Walk.Room or Looks <= 0
 end
 
-local function Listed(Walk: Walk, Prefix: string, Afford: (() -> boolean)?, Looks: number): (boolean, boolean)
-	local Ok, Pages = Walk.TxStore:ListKeysAsync(Prefix, Transactions.REAP_PAGE, nil, nil, ONCE)
+local function Listed(Walk: Walk, Prefix: string, Afford: (() -> boolean)?, Looks: number, From: string?): (boolean, boolean, string?)
+	local Ok, Pages = Walk.TxStore:ListKeysAsync(Prefix, Transactions.REAP_PAGE, From, nil, ONCE)
 	if not Ok then
-		return false, true
+		return false, true, nil
 	end
 
 	local Book = Pages :: DataStoreKeyPages
 	while true do
 		for _, Entry in Book:GetCurrentPage() do
 			if Full(Walk, Looks) then
-				return true, false
+				return true, false, Book.Cursor
 			end
 
 			local Named = (Entry :: any).KeyName
@@ -240,23 +257,32 @@ local function Listed(Walk: Walk, Prefix: string, Afford: (() -> boolean)?, Look
 		end
 
 		if Book.IsFinished then
-			return false, false
+			return false, false, nil
 		end
 		if Afford ~= nil and not Afford() then
-			return false, true
+			return false, true, Book.Cursor
 		end
 		if not pcall(Book.AdvanceToNextPageAsync, Book) then
-			return false, true
+			return false, true, nil
 		end
 	end
 end
 
-local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): (number, number, boolean)
+local function Marked(Shard: number, Prefix: string, Cursor: string?): Bookmark?
+	if Cursor == nil or Cursor == "" then
+		return nil
+	end
+	return { Shard = Shard, Prefix = Prefix, Cursor = Cursor }
+end
+
+local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): (number, number, boolean, Bookmark?)
 	local Asked: Reaping = Held or {}
 	local Older = Asked.Horizon or Windows.REAP
 	local Walk: Walk = {
 		TxStore = TxStore,
 		Lookup = Lookup,
+		Node = Asked.Node or Ids.Home(),
+		Shard = 0,
 		Now = Clock.Now(),
 		Older = Older,
 		Grace = math.min(Older, Windows.REAP_GRACE),
@@ -273,7 +299,9 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 	local Count = math.min(Asked.Shards or Transactions.SHARDS, Transactions.SHARDS)
 	Walk.Looks = math.max(Transactions.REAP_LOOKS, Walk.Room // Count)
 	local Cursor = Asked.Older
+	local Bookmark = if Cursor ~= nil then Cursor.Cursor else nil
 	local Rotated = false
+	local Pending: Bookmark? = Bookmark
 
 	local Step = 0
 	while Step < Count do
@@ -282,15 +310,22 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 		end
 
 		local Shard = (Base + Step) % Transactions.SHARDS
+		Walk.Shard = Shard
 		local Lease: Claimed = if Claim ~= nil then Claim(Shard) else ABSENT
 		local Left = Walk.Room - Walk.Looked
-		local Looks = if Lease.Outcome == Transactions.TAKEN then Left else math.min(Walk.Looks, Left)
+		local Looks = if Lease.Outcome == Transactions.TAKEN or Shard == Cleanup.Mine(Walk.Node) then Left else math.min(Walk.Looks, Left)
 		local Back = if Cursor ~= nil and Cursor.Shard == Shard then Cursor.Back else nil
 		local More, Stopped = false, false
+		if Pending ~= nil and Pending.Shard == Shard then
+			Pending = nil
+		end
 		if Lease.Outcome ~= Transactions.HELD then
 			local Prefixes = Cleanup.Blocks(Shard, Walk.Now, Back)
 			for Index, Prefix in Prefixes do
-				More, Stopped = Listed(Walk, Prefix, Afford, Looks)
+				local From = if Bookmark ~= nil and Bookmark.Shard == Shard and Bookmark.Prefix == Prefix then Bookmark.Cursor else nil
+				local Rest
+				More, Stopped, Rest = Listed(Walk, Prefix, Afford, Looks, From)
+				Pending = Marked(Shard, Prefix, Rest)
 				if Back ~= nil and Index == #Prefixes and not Stopped then
 					Rotated = true
 				end
@@ -303,13 +338,13 @@ local function Reap(TxStore: DataStoreWrapper, Lookup: Lookup, Held: Reaping?): 
 			Lease.Release()
 		end
 		if Stopped then
-			return Walk.Reaped, Shard, Rotated
+			return Walk.Reaped, Shard, Rotated, Pending
 		end
 
 		Step += 1
 	end
 
-	return Walk.Reaped, (Base + Step) % Transactions.SHARDS, Rotated
+	return Walk.Reaped, (Base + Step) % Transactions.SHARDS, Rotated, Pending
 end
 
 return table.freeze({

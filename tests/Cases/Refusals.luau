@@ -23,7 +23,6 @@ local Fold = require("../../src/Record/Fold")
 local NewOp = require("../../src/Record/NewOp")
 local Schema = require("../../src/Record/Schema")
 local Recovery = require("../../src/Protocol/Recovery")
-local Cleanup = require("../../src/Protocol/Tx/Cleanup")
 local TableUtil = require("../../src/Util/TableUtil")
 local Future = require("../../src/Util/Future")
 local NoYield = require("../../src/Util/NoYield")
@@ -698,16 +697,8 @@ end)
 
 Cases.Case("the reap works its way round every store when it cannot afford them all at once", function(T: Case)
 	local Names: { string } = {}
-	local Found = 0
-	local Tried = 0
-	while Found < Transactions.SHARDS do
-		Tried += 1
-		local Try = `husk{Tried}`
-		local Slot = Cleanup.Shard(Try) + 1
-		if Names[Slot] == nil then
-			Names[Slot] = Try
-			Found += 1
-		end
+	for Index = 1, Transactions.SHARDS do
+		Names[Index] = `husk{Index}`
 	end
 
 	local Stores: { Fixture } = {}
@@ -752,7 +743,8 @@ Cases.Case("the reap works its way round every store when it cannot afford them 
 		Standing += #Store:Marks()
 	end
 
-	T:Is("one pass per store takes one shard from each", table.concat(Round, ","), "1,1,1,1")
+	local Whole = tostring(Transactions.SHARDS)
+	T:Is("one pass per store takes one shard from each, the store's own, which holds every husk it wrote", table.concat(Round, ","), `{Whole},{Whole},{Whole},{Whole}`)
 	T:Is("a pass per shard per store takes every husk", Standing, 0)
 end)
 

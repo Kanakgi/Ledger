@@ -2756,7 +2756,9 @@ An old server then gets [`Behind`](/docs/concepts/reasons).
 
 ## History [#history]
 
-Roblox keeps 30 days of versions for every datastore key, and `History` lists them.
+Roblox keeps a version for the first write to a key in each UTC hour, for 30 days after it stops
+being current. Later writes in the same hour overwrite that version. `History` lists them, so it
+shows the state at the end of each hour and nothing finer.
 
 ```luau
 local Rows, Why = Store:History(UserId, 25):Wait()
@@ -4856,7 +4858,8 @@ rather than trusting truthiness, or a failed read reads as "never granted" and y
 Store:History(Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>
 ```
 
-Up to 30 days of versions, newest first. `Limit` is clamped to 1 through 100 and defaults to 25.
+Up to 30 days of versions, newest first, one per UTC hour the key was written in. `Limit` is
+clamped to 1 through 100 and defaults to 25.
 `nil` means the listing failed.
 
 ### PeekVersion [#peekversion]

@@ -16,7 +16,6 @@
 local Suite = require("../Suite")
 
 local Faults = require("../Suite/Fault")
-local Cleanup = require("../../src/Protocol/Tx/Cleanup")
 local Sweeper = require("../../src/Store/Sweeper")
 local Transactions = require("../../src/Core/Constants/Transactions")
 
@@ -69,19 +68,6 @@ local function Reads(Held: Fixture, Body: () -> ()): number
 	local Before = Held.Store.Wrapper.Spent
 	Body()
 	return Held.Store.Wrapper.Spent - Before
-end
-
-local function OnShard(Prefix: string, Count: number, Shard: number): { string }
-	local Found: { string } = {}
-	local Index = 0
-	while #Found < Count do
-		Index += 1
-		local Id = `{Prefix}{Index}`
-		if Cleanup.Shard(Id) == Shard then
-			table.insert(Found, Id)
-		end
-	end
-	return Found
 end
 
 Cases.Case("a fleet reaping one window lists each shard once, and every other server pays one read per shard", function(T: Case)
@@ -159,13 +145,12 @@ end)
 Cases.Case("a shard with more names than one walk looks at is handed down the fleet until it is empty", function(T: Case)
 	local Servers = Fleet(T)
 	local First = Servers[1]
-	local Shard = 0
 
 	local Planted = 0
 	for _, Count in { ROOM, ROOM, ROOM // 4 } do
-		for _, Id in OnShard(`hand{Planted}x`, Count, Shard) do
-			First:Marker(Id, { Status = "Aborted", Total = 0, Adopted = {} })
+		for _ = 1, Count do
 			Planted += 1
+			First:Marker(`hand{Planted}`, { Status = "Aborted", Total = 0, Adopted = {} })
 		end
 		T:Advance(Windows.BUCKET)
 	end
@@ -192,7 +177,7 @@ Cases.Case("a fleet clears a thousand markers in a round of passes, and what a f
 	local First = Servers[1]
 	local Planted = 1000
 	for Index = 1, Planted do
-		First:Marker(`round{Index}`, { Status = "Aborted", Total = 0, Adopted = {} })
+		Servers[Index % SERVERS + 1]:Marker(`round{Index}`, { Status = "Aborted", Total = 0, Adopted = {} })
 	end
 	T:Advance(Windows.REAP_GRACE + 1)
 	for _, Held in Servers do

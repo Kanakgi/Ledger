@@ -61,7 +61,7 @@ export type Lane = {
 export type PagesImpl = {
 	__index: PagesImpl,
 	New: (Rows: { any }, PageSize: number?, Fallback: number, Mark: ((At: number) -> string)?, Spend: (() -> ())?) -> Pages,
-	Chunked: (Chunks: { { any } }, Spend: (() -> ())?) -> Pages,
+	Chunked: (Chunks: { { any } }, Starts: { string }, Spend: (() -> ())?) -> Pages,
 	Edge: (self: Pages) -> (),
 	GetCurrentPage: (self: Pages) -> { any },
 	AdvanceToNextPageAsync: (self: Pages) -> (),
@@ -70,6 +70,7 @@ export type PagesImpl = {
 export type Pages = setmetatable<{
 	Rows: { any },
 	Chunks: { { any } }?,
+	Starts: { string }?,
 	At: number,
 	Size: number,
 	Mark: ((At: number) -> string)?,

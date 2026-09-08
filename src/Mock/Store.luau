@@ -35,8 +35,7 @@ type Transform = Types.Transform
 
 local HASH_RANGE = 2 ^ 32
 
-local CURSOR = "c%08x"
-local CURSOR_PATTERN = "^c(%x+)$"
+local CURSOR = "k"
 
 local Marks: { [string]: number } = {}
 
@@ -104,14 +103,28 @@ local function Spot(Names: { string }, Key: string): number
 	return Low
 end
 
-local function Resume(Cursor: string?): number
-	if type(Cursor) ~= "string" then
+local function Marked(Found: { string }, At: number): string
+	local Key = Found[At]
+	return if Key == nil then "" else CURSOR .. Key
+end
+
+local function Resume(Found: { string }, Cursor: string?): number
+	if type(Cursor) ~= "string" or string.sub(Cursor, 1, #CURSOR) ~= CURSOR then
 		return 1
 	end
 
-	local Digits = string.match(Cursor, CURSOR_PATTERN)
-	local Held = if Digits == nil then nil else tonumber(Digits, 16)
-	return if Held == nil or Held < 1 then 1 else Held
+	local Name = string.sub(Cursor, #CURSOR + 1)
+	local Low, High = 1, #Found + 1
+	while Low < High do
+		local Mid = (Low + High) // 2
+		local Key = Found[Mid]
+		if Key == Name or Ordered(Key, Name) then
+			Low = Mid + 1
+		else
+			High = Mid
+		end
+	end
+	return Low
 end
 
 local Store = {} :: Types.StoreImpl
@@ -204,9 +217,9 @@ end
 
 function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any, KeyInfo?)
 	CheckKey(Key)
-	self:Reach(Enum.DataStoreRequestType.UpdateAsync)
 
 	for _ = 1, Datastore.CONFLICT_LIMIT do
+		self:Reach(Enum.DataStoreRequestType.UpdateAsync)
 		local Latest = Newest(self:Look(Key))
 		local Before = if Latest then Latest.Label else nil
 
@@ -327,7 +340,7 @@ function Store.ListKeysAsync(self: Store, Prefix: string?, PageSize: number?, Cu
 	end
 	table.sort(Found, Ordered)
 
-	local From = Resume(Cursor)
+	local From = Resume(Found, Cursor)
 	local function Spend()
 		self:Reach(Enum.DataStoreRequestType.ListAsync)
 	end
@@ -338,14 +351,16 @@ function Store.ListKeysAsync(self: Store, Prefix: string?, PageSize: number?, Cu
 			table.insert(Rows, { KeyName = Found[Index] })
 		end
 		return Pages.New(Rows, PageSize, 50, function(At: number): string
-			return string.format(CURSOR, From + At - 1)
+			return Marked(Found, From + At - 2)
 		end, Spend)
 	end
 
 	local Size = math.clamp(if PageSize ~= nil and PageSize > 0 then PageSize else 50, 1, Datastore.PAGE_LIMIT)
 	local Chunks: { { any } } = {}
+	local Starts: { string } = {}
 	local Page: { any } = {}
 	local Scanned = 0
+	local Opened = From
 	for Index = From, #Found do
 		local Key = Found[Index]
 		Scanned += 1
@@ -354,14 +369,17 @@ function Store.ListKeysAsync(self: Store, Prefix: string?, PageSize: number?, Cu
 		end
 		if #Page >= Size or Scanned >= Datastore.LIST_SCAN then
 			table.insert(Chunks, Page)
+			table.insert(Starts, Marked(Found, Opened - 1))
 			Page = {}
 			Scanned = 0
+			Opened = Index + 1
 		end
 	end
 	if Scanned > 0 or #Chunks == 0 then
 		table.insert(Chunks, Page)
+		table.insert(Starts, Marked(Found, Opened - 1))
 	end
-	return Pages.Chunked(Chunks, Spend)
+	return Pages.Chunked(Chunks, Starts, Spend)
 end
 
 table.freeze(Store)

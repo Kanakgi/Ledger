@@ -23,6 +23,7 @@ local Reasons = require("../../Core/Constants/Reasons")
 local Verdicts = require("../../Core/Constants/Verdicts")
 local Shapes = require("../../Core/Shapes")
 local Digest = require("../../Encode/Digest")
+local Ids = require("../../Encode/Ids")
 local Mark = require("../../Encode/Mark")
 local Storable = require("../../Encode/Storable")
 local Log = require("../../Record/Log")
@@ -212,14 +213,15 @@ local function LegOp(Id: string, Index: number, Leg: Leg, Home: string): Op
 	return Op :: Op
 end
 
-local function Enrolled(TxStore: DataStoreWrapper, Id: string, Added: number)
+local function Enrolled(TxStore: DataStoreWrapper, Node: string, Id: string, Added: number)
 	if Clock.Now() - Added < Windows.TX then
 		return
 	end
-	Cleanup.Add(TxStore, Id)
+	Cleanup.Add(TxStore, Node, Id)
 end
 
-local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLeg: number?): (boolean, Reason?, boolean)
+local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node: string?, PerLeg: number?): (boolean, Reason?, boolean)
+	local Home = Node or Ids.Home()
 	assert(type(Id) == "string" and #Id > 0, "a transaction needs an Id, a stable name derived from the thing being settled")
 	assert(#Legs >= 2 and #Legs <= Transactions.MAX_LEGS, `a transaction takes 2 to {Transactions.MAX_LEGS} legs, got {#Legs}`)
 	assert(string.sub(Id, 1, #Transactions.RESERVED) ~= Transactions.RESERVED, `a transaction Id cannot start with '{Transactions.RESERVED}', Ledger keeps that prefix for its own keys`)
@@ -244,7 +246,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 	local Print = Digest.Of(Mark.Pack({ Keys, Shape }))
 
 	local Added = Clock.Now()
-	if not Cleanup.Add(TxStore, Id) then
+	if not Cleanup.Add(TxStore, Home, Id) then
 		warn(`Ledger: transaction '{Id}' was not started, Ledger could not write it down first. nothing was applied, try again`)
 		return false, UNRESOLVED, false
 	end
@@ -257,7 +259,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 		Floor = Attempt.Reached
 		Parked = Attempt.Parked
 		if Attempt.Committed then
-			Enrolled(TxStore, Id, Added)
+			Enrolled(TxStore, Home, Id, Added)
 			return true, nil, Parked
 		end
 
@@ -275,7 +277,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, PerLe
 		warn(`Ledger: transaction '{Id}' could not get through and changed nothing. that name is spent now, so use a new one`)
 	end
 
-	Enrolled(TxStore, Id, Added)
+	Enrolled(TxStore, Home, Id, Added)
 	return false, Last, Parked
 end
 

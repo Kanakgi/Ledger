@@ -152,7 +152,7 @@ function Fixture.Marker(self: Fixture, Id: string, Fields: { [string]: any })
 	self.DirectMarks:UpdateAsync(Id, function(): any
 		return Fields
 	end)
-	self.DirectMarks:UpdateAsync(Cleanup.Key(Id, self.Store.Wrapper.Scheduler.Now()), function(Current: any): any
+	self.DirectMarks:UpdateAsync(Cleanup.Key(self.Node, self.Store.Wrapper.Scheduler.Now()), function(Current: any): any
 		local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
 		if table.find(Held, Id) ~= nil then
 			return Current

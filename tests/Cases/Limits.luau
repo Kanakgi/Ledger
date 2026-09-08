@@ -311,7 +311,7 @@ Cases.Case("a reap pass asks the list budget again before it turns a page", func
 	local Shard = Cleanup.Mine(Bank.Store.Node)
 	local Oldest = T:Now() - Windows.REAP
 	for Index = 1, Transactions.REAP_PAGE + 1 do
-		Bank.DirectMarks:UpdateAsync(Cleanup.Named(Shard, Oldest + Index * Windows.BUCKET, 1), function(): string
+		Bank.DirectMarks:UpdateAsync(Cleanup.Named(Shard, Oldest + Index * Windows.BUCKET, Bank.Node, 1), function(): string
 			return Mark.Pack({})
 		end)
 	end
@@ -346,15 +346,9 @@ local function Listing(Bank: Fixture): () -> number
 	end
 end
 
-local function Husks(Store: Fixture, Shard: number, Count: number)
-	local Made, Tried = 0, 0
-	while Made < Count do
-		Tried += 1
-		local Name = `husk{Tried}`
-		if Cleanup.Shard(Name) == Shard then
-			Store:Marker(Name, { Status = "Aborted", Total = 1, Gen = "one", Adopted = {} })
-			Made += 1
-		end
+local function Husks(Store: Fixture, Count: number)
+	for Index = 1, Count do
+		Store:Marker(`husk{Index}`, { Status = "Aborted", Total = 1, Gen = "one", Adopted = {} })
 	end
 end
 
@@ -459,7 +453,7 @@ end)
 
 Cases.Case("a pass that walks one shard takes looks up to its whole room", function(T: Case)
 	local Bank = T:Bank()
-	Husks(Bank, Cleanup.Mine(Bank.Store.Node), 40)
+	Husks(Bank, 40)
 	T:Advance(Windows.REAP + 60)
 	Lanes(Bank, Transactions.REAP_LISTS, 1000)
 

@@ -903,7 +903,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 		end
 
 		local Ok, Committed, Why, Parked = pcall(function(): (boolean, Reason?, boolean)
-			return Tx.Drive(self.TxWrapper, Mapped, Id)
+			return Tx.Drive(self.TxWrapper, Mapped, Id, self.Node)
 		end)
 		Freed(Taken)
 

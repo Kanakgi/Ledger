@@ -63,6 +63,7 @@ local IDLE_MINUTES = 10
 local IDLE_WRITES = 200
 local CONFIG_ROLES = 100
 local CONFIG_ROLE_BYTES = 30
+local ROLL_TRANSACTIONS = 20000
 local ACCUSED = Messages.ACCUSED
 
 type Fixture = Suite.Fixture
@@ -229,6 +230,77 @@ Bench("reap", function(T: Suite.Case)
 
 	local Spent = Calls(Servers) - Before
 	Row(`reaping, one shard a server a minute over {MINUTES} minutes`, Spent, T.Service.Units - Units, string.format("%.1f calls per server", Spent / SERVERS))
+end)
+
+Bench("roll", function(T: Suite.Case)
+	local Servers = Fleet(T, SERVERS)
+	local function Plenty(): number
+		return 1000
+	end
+	for Index, Held in Servers do
+		Held:Budget(Plenty)
+		Held:MarkerBudget(Plenty)
+		Funded(Held, `rollA{Index}`, `rollB{Index}`)
+	end
+
+	local Minutes = math.clamp(ROLL_TRANSACTIONS // SERVERS, 2, MINUTES)
+	local Before, Units = Calls(Servers), T.Service.Units
+	local Told = 0
+	for Minute = 1, Minutes do
+		for Index, Held in Servers do
+			if Move(Held, `rollA{Index}`, `rollB{Index}`, 1, `roll{Index}m{Minute}`) then
+				Told += 1
+			end
+		end
+		T:Advance(Windows.SWEEP)
+	end
+	local Wrote = Calls(Servers) - Before
+
+	local Marks = Servers[1].DirectMarks
+	local RollKeys = 0
+	for _, Name in Marks.Names do
+		if Marks.Slots[Name].Live ~= nil and string.sub(Name, 1, #Transactions.RESERVED) == Transactions.RESERVED then
+			RollKeys += 1
+		end
+	end
+	local Markers = #Servers[1]:Marks()
+
+	T:Advance(Windows.REAP_GRACE + 60)
+	local ReapBefore, ReapUnits = Calls(Servers), T.Service.Units
+	local ListsBefore = T.Service.Calls.ListAsync or 0
+	local Rounds, Reaped = 0, 0
+	repeat
+		Rounds += 1
+		for _, Held in Servers do
+			Reaped += Held.Store:ReapMarkers(1)
+		end
+		T:Advance(Windows.SWEEP)
+	until Reaped >= Markers or Rounds >= 6
+	local ReapSpent = Calls(Servers) - ReapBefore
+	local Listed = (T.Service.Calls.ListAsync or 0) - ListsBefore
+	local Left = #Servers[1]:Marks()
+	local ListBudget = 300 + 2 * SERVERS * PLAYERS
+
+	Row(
+		`every server running one transaction a minute for {Minutes} minutes`,
+		Wrote,
+		T.Service.Units - Units,
+		string.format("%d of %d told yes, %.1f calls per transaction", Told, SERVERS * Minutes, Wrote / math.max(Told, 1))
+	)
+	print(string.format("    roll keys: %d live, %.1f per shard per minute, %.1f names each", RollKeys, RollKeys / (Transactions.SHARDS * Minutes), Markers / math.max(RollKeys, 1)))
+	Row(`then reaping, one shard a server a minute, {Rounds} round(s)`, ReapSpent, T.Service.Units - ReapUnits, string.format("%d of %d markers reaped, %d left", Reaped, Markers, Left))
+	print(
+		string.format(
+			"    lists: %d in %d round(s), %.1f per pass against a 20 player server's %d a minute, %d a minute fleet wide against an experience budget of %d, %s",
+			Listed,
+			Rounds,
+			Listed / (Rounds * SERVERS),
+			5 + 2 * PLAYERS,
+			Listed // Rounds,
+			ListBudget,
+			if Listed // Rounds > ListBudget then "OVER" else "inside"
+		)
+	)
 end)
 
 Bench("sweep", function(T: Suite.Case)

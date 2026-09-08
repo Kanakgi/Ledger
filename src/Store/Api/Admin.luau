@@ -73,7 +73,7 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 	local Lists = Enum.DataStoreRequestType.ListAsync
 
 	local Reaping = self.Reaping
-	local Ok, Reaped, Next, Rotated = pcall(function(): (number, number, boolean)
+	local Ok, Reaped, Next, Rotated, Cursor = pcall(function(): (number, number, boolean, Tx.Bookmark?)
 		return Tx.Reap(self.TxWrapper, function(Store: string): Log.Log?
 			for _, Known in Registry.Stores do
 				if Known.Wrapper.Name == Store then
@@ -97,6 +97,7 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 	end)
 	if Ok then
 		Reaping.Resume = Next
+		Reaping.Cursor = Cursor
 		if Rotated then
 			Reaping.Shard = (Reaping.Shard + 1) % Transactions.SHARDS
 			if Reaping.Shard == 0 then

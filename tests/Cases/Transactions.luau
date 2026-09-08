@@ -57,8 +57,8 @@ local function Wares(Shop: Fixture, Key: string, Gold: number, Sword: boolean)
 	Shop:Seed(Key, { Gold = Gold, Items = if Sword then { Sword = true } else {} })
 end
 
-local function Packed(Held: Fixture, Slot: number, When: number, Part: number): { string }
-	local Raw = (Held.DirectMarks:Current(Cleanup.Named(Slot, When, Part)))
+local function Packed(Held: Fixture, When: number, Part: number): { string }
+	local Raw = (Held.DirectMarks:Current(Cleanup.Named(Cleanup.Mine(Held.Node), When, Held.Node, Part)))
 	return if type(Raw) == "string" then Mark.Unpack(Raw) else {}
 end
 
@@ -351,16 +351,10 @@ end)
 Cases.Case("a finished marker behind a shard full of stuck cleanup keys is still reaped", function(T: Case)
 	local Bank = T:Bank()
 	local Victim = "zzz-victim"
-	local Shard = Cleanup.Shard(Victim)
 	local Wall = Transactions.REAP_PAGE + 6
 
 	for Index = 1, Wall do
-		local Try = 0
-		local Id = ""
-		repeat
-			Try += 1
-			Id = string.format("wall-%03d-%03d", Index, Try)
-		until Cleanup.Shard(Id) == Shard
+		local Id = string.format("wall-%03d", Index)
 
 		Bank:Marker(Id, { Status = "Pending", Total = 2, Gen = "one", At = T:Now(), Adopted = {} })
 		T:Advance(60)
@@ -404,38 +398,45 @@ Cases.Case("a pass costs the same however many markers are stuck", function(T: C
 	T:Is("every one of them is still there", #Bank:Marks(), Stuck)
 end)
 
-local function Hashed(Target: number, Count: number, Tag: string): { string }
-	local Found: { string } = {}
-	local Try = 0
-	while #Found < Count do
-		Try += 1
-		local Id = `{Tag}{Try}`
-		if Cleanup.Shard(Id) == Target then
-			table.insert(Found, Id)
-		end
+local function Batch(Count: number, Tag: string): { string }
+	local Found: { string } = table.create(Count) :: { string }
+	for Index = 1, Count do
+		Found[Index] = `{Tag}{Index}`
 	end
 	return Found
 end
 
+local function NodeOn(Target: number): string
+	local Try = 0
+	while true do
+		Try += 1
+		local Node = `s{Try}`
+		if Cleanup.Mine(Node) == Target then
+			return Node
+		end
+	end
+end
+
 Cases.Case("a pass that stopped at its cap starts the next one where it stopped", function(T: Case)
 	local Bank = T:Bank()
-	local Base = Cleanup.Mine(Bank.Store.Node)
+	local Base = Cleanup.Mine(Bank.Node)
 	local Fronts = 4
 
-	local function Bury(Held: { string })
+	local function Bury(Shard: number, Held: { string })
+		local Server = if Shard == Base then Bank else T:Bank(NodeOn(Shard))
 		for _, Id in Held do
-			Bank:Marker(Id, { Status = "Committed", Total = 1, Gen = "one", At = T:Now(), Adopted = {}, Dead = true })
+			Server:Marker(Id, { Status = "Committed", Total = 1, Gen = "one", At = T:Now(), Adopted = {}, Dead = true })
 		end
 	end
 
 	local Room = Transactions.REAP_LOOKS * Fronts
 	Bank.Store.Leases = nil
 
-	for Step = 0, Fronts - 1 do
-		Bury(Hashed((Base + Step) % Transactions.SHARDS, Transactions.REAP_LOOKS * 2, `front{Step}x`))
+	for Step = 1, Fronts do
+		Bury((Base + Step) % Transactions.SHARDS, Batch(Transactions.REAP_LOOKS * 2, `front{Step}x`))
 	end
-	local Last = Hashed((Base + Transactions.SHARDS - 1) % Transactions.SHARDS, 4, "tailx")
-	Bury(Last)
+	local Last = Batch(4, "tailx")
+	Bury((Base + Transactions.SHARDS - 1) % Transactions.SHARDS, Last)
 
 	T:Advance(Windows.REAP + 600)
 	local First = Bank.Store:ReapMarkers(nil, Room)
@@ -464,7 +465,7 @@ Cases.Case("a reap pass on a shard costs the same however many roll keys it remo
 	local function Removed(Back: number, Count: number)
 		local Parts = 5
 		for Index = 0, Count - 1 do
-			local Named = Cleanup.Named(Shard, T:Now() - Back - (Index // Parts) * Windows.BUCKET, Index % Parts + 1)
+			local Named = Cleanup.Named(Shard, T:Now() - Back - (Index // Parts) * Windows.BUCKET, Bank.Node, Index % Parts + 1)
 			Bank.DirectMarks:UpdateAsync(Named, function(): string
 				return Mark.Pack({})
 			end)
@@ -485,7 +486,7 @@ Cases.Case("a reap pass on a shard costs the same however many roll keys it remo
 		return 1000
 	end)
 	Removed(Days, 1500)
-	for _, Id in Hashed(Shard, 2, "monthx") do
+	for _, Id in Batch(2, "monthx") do
 		Bank:Marker(Id, { Status = "Aborted", Total = 0, Adopted = {} })
 	end
 	T:Advance(Windows.REAP_GRACE + 1)
@@ -506,10 +507,121 @@ Cases.Case("a reap pass on a shard costs the same however many roll keys it remo
 	T:Is("list requests once 1,500 removed keys sit in the block it does list, one per 512 checked", Dear, 3)
 end)
 
+Cases.Case("a small server reaps a shard holding twice a 100k CCU fleet's keys, since a pass picks the listing up where the last one stopped", function(T: Case)
+	local Bank = T:Bank()
+	local Shard = Cleanup.Mine(Bank.Node)
+	local Lists = Enum.DataStoreRequestType.ListAsync
+	local Fleet = 313
+	local Minutes = 130
+	local Live = 900
+	local Budget = 5 + 2 * 20
+
+	local Start = T:Now()
+	local Block = Cleanup.Block(Start)
+	while Cleanup.Block(Start) == Block do
+		Start += Windows.BUCKET
+	end
+	T:Advance(Start + (Minutes + 10) * Windows.BUCKET - T:Now())
+
+	for Minute = 0, Minutes - 1 do
+		for Server = 1, Fleet do
+			local Named = Cleanup.Named(Shard, Start + Minute * Windows.BUCKET, `s{Server}`, 1)
+			Bank.DirectMarks:UpdateAsync(Named, function(): string
+				return Mark.Pack({})
+			end)
+			Bank.DirectMarks:RemoveAsync(Named)
+		end
+	end
+	for Index = 1, Live do
+		local Named = Cleanup.Named(Shard, Start + (Index % Minutes) * Windows.BUCKET, `s{Fleet + Index}`, 1)
+		Bank.DirectMarks:UpdateAsync(`big{Index}`, function(): any
+			return { Status = "Aborted", Total = 0, Adopted = {} }
+		end)
+		Bank.DirectMarks:UpdateAsync(Named, function(): string
+			return Mark.Pack({ `big{Index}` })
+		end)
+	end
+
+	local Minute, Spent = -1, 0
+	Bank:Budget(function(): number
+		return 1000
+	end)
+	Bank:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
+		if Kind ~= Lists then
+			return 1000
+		end
+		local Now = T:Now() // Windows.BUCKET
+		if Now ~= Minute then
+			Minute, Spent = Now, T.Service.Calls[Lists.Name] or 0
+		end
+		return math.max(0, Budget - ((T.Service.Calls[Lists.Name] or 0) - Spent))
+	end)
+
+	local Before = T.Service.Calls[Lists.Name] or 0
+	local Passes = 0
+	while #Bank:Marks() > 0 and Passes < 40 do
+		Passes += 1
+		Bank.Store:ReapMarkers(5)
+		T:Advance(Windows.SWEEP)
+	end
+
+	T:Is("markers left once a small server has had forty passes", #Bank:Marks(), 0)
+	T:Ok("list requests it spent, inside its budget for the passes it took", (T.Service.Calls[Lists.Name] or 0) - Before <= Budget * Passes)
+end)
+
+Cases.Case("a list that fails drops the bookmark, so the next pass starts the listing again", function(T: Case)
+	local Bank = T:Bank()
+	local Shard = Cleanup.Mine(Bank.Node)
+	local Lists = Enum.DataStoreRequestType.ListAsync
+	local Planted = 200
+
+	for Index = 1, Planted do
+		Bank.DirectMarks:UpdateAsync(`mark{Index}`, function(): any
+			return { Status = "Aborted", Total = 0, Adopted = {} }
+		end)
+		Bank.DirectMarks:UpdateAsync(Cleanup.Named(Shard, T:Now(), `s{Index}`, 1), function(): string
+			return Mark.Pack({ `mark{Index}` })
+		end)
+	end
+	T:Advance(Windows.REAP_GRACE + 1)
+
+	local Allowed, Base = 3, 0
+	Bank:Budget(function(): number
+		return 1000
+	end)
+	Bank:MarkerBudget(function(Kind: Enum.DataStoreRequestType): number
+		if Kind ~= Lists then
+			return 1000
+		end
+		return math.max(0, Allowed - ((T.Service.Calls[Lists.Name] or 0) - Base))
+	end)
+
+	local function Pass(Room: number)
+		Allowed, Base = Room, T.Service.Calls[Lists.Name] or 0
+		Bank.Store:ReapMarkers(1)
+		T:Advance(Windows.SWEEP)
+	end
+
+	Pass(3)
+	local Kept = Bank.Store.Reaping.Cursor
+	local Halfway = #Bank:Marks()
+
+	local Spec = Bank:MarkerFault(Fault.On("ListKeysAsync"):Only(1))
+	Pass(3)
+	local Dropped = Bank.Store.Reaping.Cursor
+
+	Pass(100)
+
+	T:Ok("a pass short of list budget stops with a bookmark", Kept ~= nil and Kept.Shard == Shard and #Kept.Cursor > 0)
+	T:Ok("and had reaped some of the shard before it stopped", Halfway > 0 and Halfway < Planted)
+	T:Is("the list that failed", Spec.Fired, 1)
+	T:Is("the bookmark after a list that failed", Dropped, nil)
+	T:Is("markers left once a pass could list the whole shard from the start", #Bank:Marks(), 0)
+end)
+
 Cases.Case("a sweep asks the budget before every marker, so a pass stops inside a shard when reads run short", function(T: Case)
 	local Bank = T:Bank()
-	local Shard = Cleanup.Mine(Bank.Store.Node)
-	for _, Id in Hashed(Shard, 40, "shortx") do
+	for _, Id in Batch(40, "shortx") do
 		Bank:Marker(Id, { Status = "Aborted", Total = 0, Adopted = {} })
 	end
 	T:Advance(Windows.REAP_GRACE + 1)
@@ -534,7 +646,7 @@ Cases.Case("a drive slower than a transaction may writes its name on the list ag
 	local Bank = T:Bank()
 	local Txid = "orphan1"
 
-	Cleanup.Add(Bank.Store.TxWrapper, Txid)
+	Cleanup.Add(Bank.Store.TxWrapper, Bank.Node, Txid)
 	local Enrolled = Bank:Rolled()[Txid] == true
 
 	T:Advance(Windows.REAP_GRACE + 120)
@@ -544,7 +656,7 @@ Cases.Case("a drive slower than a transaction may writes its name on the list ag
 	Bank.DirectMarks:UpdateAsync(Txid, function(): any
 		return { Status = "Committed", Total = 1, Gen = "one", At = T:Now(), Adopted = {}, Dead = true }
 	end)
-	Cleanup.Add(Bank.Store.TxWrapper, Txid)
+	Cleanup.Add(Bank.Store.TxWrapper, Bank.Node, Txid)
 
 	T:Advance(Windows.REAP + 60)
 	Bank.Store:ReapMarkers()
@@ -556,16 +668,16 @@ end)
 
 Cases.Case("a roll key stops at its limit and the rest go on the next", function(T: Case)
 	local Bank = T:Bank()
-	local Slot = Cleanup.Shard("anchor")
+	local Slot = Cleanup.Mine(Bank.Node)
 	local Spare = 40
 
-	local Names = Hashed(Slot, Transactions.ROLL_LIMIT * 2 + Spare, "rollx")
-	local Ok = Cleanup.Carry(Bank.Store.TxWrapper, Names)
+	local Names = Batch(Transactions.ROLL_LIMIT * 2 + Spare, "rollx")
+	local Ok = Cleanup.Carry(Bank.Store.TxWrapper, Slot, Bank.Node, Names)
 
 	local Counts: { number } = {}
 	local Seen: { [string]: boolean } = {}
 	for Part = 1, 5 do
-		local Held = Bank:Mark(Cleanup.Named(Slot, T:Now(), Part))
+		local Held = Bank:Mark(Cleanup.Named(Slot, T:Now(), Bank.Node, Part))
 		if type(Held) ~= "string" then
 			continue
 		end
@@ -591,6 +703,45 @@ Cases.Case("a roll key stops at its limit and the rest go on the next", function
 	T:Is("so does the second", Counts[2], Transactions.ROLL_LIMIT)
 	T:Is("and the rest sit on the third", Counts[3], Spare)
 	T:Is("a key an older build wrote with no part still reads", Cleanup.At("__07:0000028800"), Cleanup.At("__07:0000028800:001"))
+	T:Is("a key this build writes reads its minute the same way", Cleanup.At(Cleanup.Key(Bank.Node, 28800 * Windows.BUCKET)), Cleanup.At("__07:0000028800:001"))
+end)
+
+Cases.Case("a cleanup list key an older build wrote, shared by every server, is still read and reaped", function(T: Case)
+	local Bank = T:Bank()
+	local Minute = T:Now() // Windows.BUCKET
+	local Shared = string.format(`{Transactions.RESERVED}%02d:%010d:%03d`, Cleanup.Mine(Bank.Node), Minute, 1)
+
+	Bank.DirectMarks:UpdateAsync("oldroll1", function(): any
+		return { Status = "Aborted", Total = 0, Adopted = {} }
+	end)
+	Bank.DirectMarks:UpdateAsync(Shared, function(): string
+		return Mark.Pack({ "oldroll1" })
+	end)
+	T:Advance(Windows.REAP_GRACE + 1)
+
+	Bank.Store:ReapMarkers()
+
+	T:Is("the minute the old key reads as", Cleanup.At(Shared), Minute * Windows.BUCKET)
+	T:Is("the marker it named", Bank:Mark("oldroll1"), nil)
+	T:Is("the old key itself", Bank:Mark(Shared), nil)
+end)
+
+Cases.Case("a server writes its names to a key of its own, and another server's pass still takes them off", function(T: Case)
+	local Shop = T:Market("nodeA")
+	local Beside = T:Market("nodeB")
+	Wares(Shop, "ownA", 100, true)
+	Wares(Shop, "ownB", 100, false)
+
+	T:Ok("the deal", (Swap(Shop, "ownA", "ownB", 30, "ownroll1")))
+	local Own = Shop:Mark(Cleanup.Key("nodeA", T:Now()))
+	local Named = if type(Own) == "string" then Mark.Unpack(Own) else {}
+
+	T:Advance(Windows.REAP + 60)
+	Beside.Store:ReapMarkers()
+
+	T:Is("the name on the first server's own key", table.find(Named, "ownroll1") ~= nil, true)
+	T:Is("the marker after the other server's pass", Shop:Mark("ownroll1"), nil)
+	T:Is("the name on the list after it", Shop:Rolled()["ownroll1"], nil)
 end)
 
 Cases.Case("a pass stops when the store the records live in has no budget", function(T: Case)
@@ -2018,13 +2169,13 @@ Cases.Case("a cleanup list key nobody can read is stepped over rather than writt
 	local Bank = T:Bank()
 
 	T:Advance(60)
-	local Bad = Cleanup.Key("bentroll", T:Now())
+	local Bad = Cleanup.Key(Bank.Node, T:Now())
 
 	Bank.DirectMarks:UpdateAsync(Bad, function(): any
 		return "this is not a packed list"
 	end)
 
-	local Added = Cleanup.Add(Bank.Store.TxWrapper, "bentroll")
+	local Added = Cleanup.Add(Bank.Store.TxWrapper, Bank.Node, "bentroll")
 	local Held = Bank:Rolled()
 
 	T:Is("the transaction was still enrolled", Added, true)
@@ -2085,24 +2236,14 @@ end)
 
 Cases.Case("a store filling a cleanup key does not push another store's names past it", function(T: Case)
 	local Bank, Vault = T:Bank(), T:Vault()
+	local Filling = Batch(Transactions.ROLL_LIMIT + 1, "fill")
 
-	local Slot = Cleanup.Shard("late1")
-	local Filling: { string } = {}
-	local Tried = 0
-	while #Filling <= Transactions.ROLL_LIMIT do
-		Tried += 1
-		local Named = `fill{Tried}`
-		if Cleanup.Shard(Named) == Slot then
-			table.insert(Filling, Named)
-		end
-	end
+	T:Is("the first store overflows its own key", Cleanup.Carry(Bank.Store.TxWrapper, Cleanup.Mine(Bank.Node), Bank.Node, Filling), true)
+	T:Is("the second store writes one name", Cleanup.Add(Vault.Store.TxWrapper, Vault.Node, "late1"), true)
 
-	T:Is("the first store overflows its own key", Cleanup.Carry(Bank.Store.TxWrapper, Filling), true)
-	T:Is("the second store writes one name", Cleanup.Add(Vault.Store.TxWrapper, "late1"), true)
-
-	T:Is("what the first store put on the first part", #Packed(Bank, Slot, T:Now(), 1), Transactions.ROLL_LIMIT)
-	T:Is("what the second store put on the first part of its own key", #Packed(Vault, Slot, T:Now(), 1), 1)
-	T:Is("and nothing of the second store's went past it", #Packed(Vault, Slot, T:Now(), 2), 0)
+	T:Is("what the first store put on the first part", #Packed(Bank, T:Now(), 1), Transactions.ROLL_LIMIT)
+	T:Is("what the second store put on the first part of its own key", #Packed(Vault, T:Now(), 1), 1)
+	T:Is("and nothing of the second store's went past it", #Packed(Vault, T:Now(), 2), 0)
 end)
 
 Cases.Case("a transaction will not put a leg on an erased key", function(T: Case)
@@ -2150,22 +2291,19 @@ Cases.Case("a transaction lands on an erased key once its tomb has run out", fun
 	T:Silent("it did not say the key was turned away", "was erased and is turned away")
 end)
 
-Cases.Case("a roll write that met another still puts every name on the list", function(T: Case)
+Cases.Case("two servers writing the roll at once each write a key of their own and never meet", function(T: Case)
 	local Bank = T:Bank("nodeA")
 	local Beside = T:Bank("nodeB")
 
-	local Slot = Cleanup.Shard("anchor")
-	Cleanup.Carry(Bank.Store.TxWrapper, Hashed(Slot, Transactions.ROLL_LIMIT - 3, "rollfill"))
-
-	local Mine = Hashed(Slot, 3, "rollmine")
-	local Theirs = Hashed(Slot, 2, "rollyours")
+	local Mine = Batch(3, "rollmine")
+	local Theirs = Batch(2, "rollyours")
 
 	T:Race({
 		function()
-			Cleanup.Carry(Beside.Store.TxWrapper, Theirs)
+			Cleanup.Carry(Beside.Store.TxWrapper, Cleanup.Mine(Beside.Node), Beside.Node, Theirs)
 		end,
 		function()
-			Cleanup.Carry(Bank.Store.TxWrapper, Mine)
+			Cleanup.Carry(Bank.Store.TxWrapper, Cleanup.Mine(Bank.Node), Bank.Node, Mine)
 		end,
 	})
 
@@ -2176,9 +2314,19 @@ Cases.Case("a roll write that met another still puts every name on the list", fu
 			Missing += 1
 		end
 	end
+	for _, Txid in Theirs do
+		if not Rolled[Txid] then
+			Missing += 1
+		end
+	end
 
-	T:Ok("two writes met on the roll key and one ran its transform again", T.Service.Conflicts > 0)
-	T:Is("names of its own the write left off the list", Missing, 0)
+	local Own = Bank:Mark(Cleanup.Key(Bank.Node, T:Now()))
+	local Held = if type(Own) == "string" then Mark.Unpack(Own) else {}
+
+	T:Is("writes that met on a key and ran their transform again", T.Service.Conflicts, 0)
+	T:Is("names either server left off the list", Missing, 0)
+	T:Is("names on the first server's own key", #Held, 3)
+	T:Is("a name of the other server's on it", table.find(Held, Theirs[1]), nil)
 end)
 
 local function Blobbed(): { any }

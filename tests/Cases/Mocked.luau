@@ -69,6 +69,31 @@ Cases.Case("a mock transform still sees what is on the key", function(T: Case)
 	T:Is("what is on the key", (Store:GetAsync("count") :: any).N, 8)
 end)
 
+Cases.Case("a transform that runs again pays a request for every run", function(T: Case)
+	local Service = Mock.New({ Throttled = false }, T.Turn)
+	local Store = Service:GetDataStore("Meeting")
+	Store:SetAsync("count", { N = 1 })
+
+	local Runs = 0
+	local Final: any = nil
+	T:Race({
+		function()
+			Final = Store:UpdateAsync("count", function(Current: any): any
+				Runs += 1
+				return { N = Current.N + 10 }
+			end)
+		end,
+		function()
+			Store:SetAsync("count", { N = 5 })
+		end,
+	})
+
+	T:Is("times the transform ran", Runs, 2)
+	T:Is("conflicts the service counted", Service.Conflicts, 1)
+	T:Is("update requests the service counted", Service.Calls.UpdateAsync, 2)
+	T:Is("the sum the transform built on", Final.N, 15)
+end)
+
 Cases.Case("the mock keeps the limits the real service keeps", function(T: Case)
 	local Store = Mock.New({ Throttled = false }, T.Turn):GetDataStore("Caps")
 

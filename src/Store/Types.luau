@@ -165,10 +165,17 @@ export type Queued = {
 	Threads: { thread },
 }
 
+export type Bookmark = {
+	Shard: number,
+	Prefix: string,
+	Cursor: string,
+}
+
 export type Reaping = {
 	Resume: number?,
 	Shard: number,
 	Back: number,
+	Cursor: Bookmark?,
 }
 
 export type Batched = {

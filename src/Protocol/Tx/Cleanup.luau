@@ -21,6 +21,7 @@
 
 local Clock = require("../../Util/Clock")
 local DataStoreWrapper = require("../../Util/DataStoreWrapper")
+local Datastore = require("../../Core/Constants/Datastore")
 local Transactions = require("../../Core/Constants/Transactions")
 local Windows = require("../../Core/Constants/Windows")
 local Digest = require("../../Encode/Digest")
@@ -35,6 +36,7 @@ local SLOT_WIDTH = 2
 local BLOCK_WIDTH = 7
 local BLOCK = 10 ^ (WIDTH - BLOCK_WIDTH)
 local BACK = Windows.STUCK // (BLOCK * Windows.BUCKET) + 2
+local NODE_MOST = Datastore.MAX_KEY - (#Transactions.RESERVED + SLOT_WIDTH + WIDTH + PART_WIDTH + 3)
 
 assert(Transactions.SHARDS <= 10 ^ SLOT_WIDTH, "a cleanup list key writes its shard in two digits, so more shards than that would write keys the reaper cannot read back")
 assert(
@@ -43,9 +45,10 @@ assert(
 )
 
 local DIGITS = string.rep("%d", WIDTH)
-local FORMAT = `{Transactions.RESERVED}%02d:%0{WIDTH}d:%0{PART_WIDTH}d`
+local FORMAT = `{Transactions.RESERVED}%02d:%0{WIDTH}d:%s:%0{PART_WIDTH}d`
 local HEAD = `{Transactions.RESERVED}%02d:%0{BLOCK_WIDTH}d`
-local PATTERN = `^{Transactions.RESERVED}%d%d:({DIGITS}):%d+$`
+local PATTERN = `^{Transactions.RESERVED}%d%d:({DIGITS}):%w+:%d+$`
+local SHARED = `^{Transactions.RESERVED}%d%d:({DIGITS}):%d+$`
 local PLAIN = `^{Transactions.RESERVED}%d%d:({DIGITS})$`
 
 type Parts = {
@@ -62,12 +65,25 @@ local function Shard(Text: string): number
 	return Digest.Bucket(Text, Transactions.SHARDS)
 end
 
-local function Named(Slot: number, When: number, Part: number): string
-	return string.format(FORMAT, Slot, When // Windows.BUCKET, Part)
+local function Mine(Node: string?): number
+	local Home = Node or Ids.Home()
+	if Home ~= LastNode then
+		LastNode = Home
+		LastShard = Shard(Home)
+	end
+	return LastShard
 end
 
-local function Key(Txid: string, When: number): string
-	return Named(Shard(Txid), When, 1)
+local function Named(Slot: number, When: number, Node: string, Part: number): string
+	assert(
+		type(Node) == "string" and #Node > 0 and #Node <= NODE_MOST and string.find(Node, "^%w+$") ~= nil,
+		`a cleanup list key carries the server's name, and '{tostring(Node)}' is not one of 1 to {NODE_MOST} letters and digits`
+	)
+	return string.format(FORMAT, Slot, When // Windows.BUCKET, Node, Part)
+end
+
+local function Key(Node: string, When: number): string
+	return Named(Mine(Node), When, Node, 1)
 end
 
 local function Block(When: number): number
@@ -91,7 +107,7 @@ local function Blocks(Slot: number, Now: number, Older: number?): { string }
 end
 
 local function At(Held: string): number?
-	local Digits = string.match(Held, PATTERN) or string.match(Held, PLAIN)
+	local Digits = string.match(Held, PATTERN) or string.match(Held, SHARED) or string.match(Held, PLAIN)
 	if Digits == nil then
 		return nil
 	end
@@ -103,16 +119,7 @@ local function At(Held: string): number?
 	return Minutes * Windows.BUCKET
 end
 
-local function Mine(Node: string?): number
-	local Home = Node or Ids.Home()
-	if Home ~= LastNode then
-		LastNode = Home
-		LastShard = Shard(Home)
-	end
-	return LastShard
-end
-
-local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batch: { string }): boolean
+local function Place(TxStore: DataStoreWrapper, Slot: number, Node: string, When: number, Batch: { string }): boolean
 	local Minute = When // Windows.BUCKET
 	local Hint = Filled[TxStore]
 	if Hint == nil then
@@ -129,12 +136,12 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batc
 
 	while #Left > 0 and Part <= Transactions.PARTS do
 		local Placed = 0
-		local Ok = TxStore:UpdateAsync(Named(Slot, When, Part), function(Current: any): string?
+		local Ok = TxStore:UpdateAsync(Named(Slot, When, Node, Part), function(Current: any): string?
 			Placed = 0
 			local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
 			if type(Current) == "string" and #Current > 0 and #Held == 0 then
 				warn(
-					`Ledger: the cleanup list key '{Named(Slot, When, Part)}' is not a list of names, so it is left alone. this transaction goes on the next key. whatever was on it cannot be read back`
+					`Ledger: the cleanup list key '{Named(Slot, When, Node, Part)}' is not a list of names, so it is left alone. this transaction goes on the next key. whatever was on it cannot be read back`
 				)
 				return nil
 			end
@@ -180,28 +187,12 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, When: number, Batc
 	return #Left == 0
 end
 
-local function Carry(TxStore: DataStoreWrapper, Txids: { string }): boolean
-	local Now = Clock.Now()
-	local Grouped: { [number]: { string } } = {}
-	for _, Txid in Txids do
-		local Slot = Shard(Txid)
-		local Batch = Grouped[Slot]
-		if Batch == nil then
-			Batch = {}
-			Grouped[Slot] = Batch
-		end
-		table.insert(Batch, Txid)
-	end
-
-	local Every = true
-	for Slot, Batch in Grouped do
-		Every = Place(TxStore, Slot, Now, Batch) and Every
-	end
-	return Every
+local function Carry(TxStore: DataStoreWrapper, Slot: number, Node: string, Txids: { string }): boolean
+	return Place(TxStore, Slot, Node, Clock.Now(), Txids)
 end
 
-local function Add(TxStore: DataStoreWrapper, Txid: string): boolean
-	return Carry(TxStore, { Txid })
+local function Add(TxStore: DataStoreWrapper, Node: string, Txid: string): boolean
+	return Carry(TxStore, Mine(Node), Node, { Txid })
 end
 
 return table.freeze({

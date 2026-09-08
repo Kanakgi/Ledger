@@ -23,6 +23,7 @@ export type Leg = Types.Leg
 export type Status = Types.Status
 export type Lookup = Types.Lookup
 export type Claimed = Types.Claimed
+export type Bookmark = Reap.Bookmark
 
 return table.freeze({
 	Drive = Coordinator.Drive,

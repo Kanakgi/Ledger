@@ -40,17 +40,20 @@ function Pages.New(Rows: { any }, PageSize: number?, Fallback: number, Mark: ((A
 	return Book
 end
 
-function Pages.Chunked(Chunks: { { any } }, Spend: (() -> ())?): Pages
+function Pages.Chunked(Chunks: { { any } }, Starts: { string }, Spend: (() -> ())?): Pages
 	local Book: Pages = setmetatable({
 		Rows = {},
 		Chunks = Chunks,
+		Starts = Starts,
 		At = 1,
 		Size = 1,
 		Mark = nil,
 		Spend = Spend,
 		Cursor = "",
-		IsFinished = #Chunks <= 1,
+		IsFinished = true,
 	}, Pages) :: any
+
+	Book:Edge()
 	return Book
 end
 
@@ -58,6 +61,8 @@ function Pages.Edge(self: Pages)
 	local Chunks = self.Chunks
 	if Chunks ~= nil then
 		self.IsFinished = self.At >= #Chunks
+		local Starts = self.Starts
+		self.Cursor = if self.IsFinished or Starts == nil then "" else Starts[self.At + 1] or ""
 		return
 	end
 	self.IsFinished = self.At + self.Size > #self.Rows
