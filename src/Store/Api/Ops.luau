@@ -251,7 +251,7 @@ end
 
 function Store.EditOp(self: Store, Key: KeyLike, Op: Op): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "EditOp")
-	if type(Op) ~= "table" or type(Op.Id) ~= "string" or #Op.Id == 0 or type(Op.Kind) ~= "string" or #Op.Kind == 0 then
+	if not Validate.Op(Op) then
 		warn("Ledger: EditOp rejected the op, an op needs a string Id and a string Kind")
 		return Rejected(INVALID)
 	end
@@ -436,8 +436,9 @@ function Store.Dropped(self: Store, Slot: string, Rid: string, State: any): Drop
 		end
 
 		Fresh[Rid] = nil
-		if type(State) == "table" and type(State[Mine.Field]) == "number" then
-			Item.Stock[Mine.Field] = State[Mine.Field]
+		local Stock = Validate.Numbered(State, Mine.Field)
+		if Stock ~= nil then
+			Item.Stock[Mine.Field] = Stock
 		end
 		Answer = Bookings.DROPPED
 		return { Holds = Fresh, Stock = Item.Stock }
@@ -484,8 +485,8 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 				return false, Failed(`read the {Field} on`, Resolved, State)
 			end
 
-			local Stock = if type(State) == "table" then State[Field] else nil
-			if type(Stock) ~= "number" then
+			local Stock = Validate.Numbered(State, Field)
+			if Stock == nil then
 				return false, REFUSED
 			end
 			if Answer == Bookings.COLD or Stock ~= Known then

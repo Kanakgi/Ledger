@@ -28,6 +28,7 @@ local Reasons = require("../Core/Constants/Reasons")
 local Shapes = require("../Core/Shapes")
 local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
+local Validate = require("../Core/Validate")
 local Windows = require("../Core/Constants/Windows")
 local Measure = require("../Encode/Measure")
 local LogTypes = require("../Record/Types")
@@ -172,7 +173,7 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 end
 
 function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
-	if type(Op) ~= "table" or type(Op.Id) ~= "string" or #Op.Id == 0 or type(Op.Kind) ~= "string" or #Op.Kind == 0 then
+	if not Validate.Op(Op) then
 		warn("Ledger: rejected commit, an op needs a string Id and a string Kind")
 		return Rejected(INVALID)
 	end
