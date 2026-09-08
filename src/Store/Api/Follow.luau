@@ -131,7 +131,7 @@ function Store.Copy(self: Store, Key: string): Copy
 	return Fresh
 end
 
-function Store.Recorded(self: Store, Key: string): Source
+function Store.Recorded(self: Store, Key: string, Fresh: boolean?): Source
 	return {
 		Key = Key,
 		Slot = Mark.Cached({ self.Wrapper.Name, Key }),
@@ -140,7 +140,7 @@ function Store.Recorded(self: Store, Key: string): Source
 		Fits = true,
 		Refill = function(_Copy: Copy): (any?, number?, Reason?)
 			local Ok, Stamp, Folded = pcall(function(): (number?, any)
-				local Stored, Stamped = self:Records():Read(Key)
+				local Stored, Stamped = self:Records():Read(Key, Fresh)
 				self:Watch(Key, Stored)
 				local State = self:Fold(Stored)
 				self:WatchHeld(Key, State)

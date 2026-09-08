@@ -142,8 +142,8 @@ function Store.Fold(self: Store, Record: Record): any
 	return self:Format():Fold(Record)
 end
 
-function Store.ReadRecord(self: Store, Key: string): Record
-	return (self:Records():Read(Key))
+function Store.ReadRecord(self: Store, Key: string, Fresh: boolean?): Record
+	return (self:Records():Read(Key, Fresh))
 end
 
 return table.freeze({})

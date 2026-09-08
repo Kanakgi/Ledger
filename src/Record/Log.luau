@@ -238,8 +238,8 @@ function Log.Update(self: Log, Key: string, Change: Transform): Outcome
 	return { Before = Before, After = Materialize(Value), Changed = true, Stamp = Stamped(Info) }
 end
 
-function Log.Read(self: Log, Key: string): (Record, number?)
-	local Ok, Value, Info = self.Wrapper:GetAsync(Key)
+function Log.Read(self: Log, Key: string, Fresh: boolean?): (Record, number?)
+	local Ok, Value, Info = self.Wrapper:GetAsync(Key, nil, Fresh)
 	if not Ok then
 		error(Value)
 	end

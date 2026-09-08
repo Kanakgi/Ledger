@@ -10,6 +10,11 @@
 	means empty. Inspect hands back a frozen copy. A Peek with a MaxAge answers the copy of the key
 	this server holds while it is that young, and the shared copy after, with the game's fields only.
 
+	Two reads say they answer from the key rather than from anything held: a Peek with a MaxAge of
+	zero, and Inspect, which is the read a capture is taken with. A datastore keeps a cache of its
+	own for a few seconds, so those two ask it not to, and pay a request that a cached read would
+	not. Every other read takes the cache, which is what makes it worth having.
+
 	Return type: An empty table. It writes Peek, DidApply, History, PeekVersion and Inspect onto the class.
 	Example usage:
 		local Read = require("./Read")
@@ -77,7 +82,7 @@ function Store.Peek(self: Store, Key: KeyLike, MaxAge: number?): Future<any?, Re
 		if Age > 0 and Copy.State ~= nil and Now - Copy.Seen <= Age then
 			return Copy.State, nil
 		end
-		return self:Copied(Copy, Now, Age == 0, self:Recorded(Resolved))
+		return self:Copied(Copy, Now, Age == 0, self:Recorded(Resolved, Age == 0))
 	end)
 end
 
@@ -122,7 +127,7 @@ function Store.Inspect(self: Store, Key: KeyLike): Future<Record?, Reason?>
 	local Resolved = self:Resolve(Key, "Inspect")
 
 	return Reading("inspect", Resolved, function(): Record
-		return TableUtil.DeepFreeze(TableUtil.DeepCopy(self:ReadRecord(Resolved)))
+		return TableUtil.DeepFreeze(TableUtil.DeepCopy(self:ReadRecord(Resolved, true)))
 	end)
 end
 

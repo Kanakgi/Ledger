@@ -56,7 +56,7 @@ export type LogImpl = {
 	New: (Wrapper: DataStoreWrapper, Known: number?, Floor: number?) -> Log,
 	Legible: (self: Log, Key: string, Record: Record<any>) -> (),
 	Update: (self: Log, Key: string, Apply: (Record<any>) -> Record<any>?) -> Outcome,
-	Read: (self: Log, Key: string) -> (Record<any>, number?),
+	Read: (self: Log, Key: string, Fresh: boolean?) -> (Record<any>, number?),
 	ReadVersion: (self: Log, Key: string, Version: string) -> Record<any>,
 	Append: (self: Log, Key: string, Ops: { Op }, Guard: ((Record<any>) -> boolean)?, Sift: ((Record<any>) -> (Op) -> boolean?)?) -> (Record<any>, { string }, { string }, number?),
 	AppendUnlessPending: (self: Log, Key: string, Ops: { Op }) -> Record<any>,

@@ -109,6 +109,37 @@ local function Built(T: Case, Name: string, Hook: Engine.Hook?, Migrations: { an
 	})
 end
 
+Cases.Case("only the reads that promise the key itself ask the datastore to skip its own cache", function(T: Case)
+	local Asked = 0
+	local Hook: Engine.Hook = {
+		Open = T.Hook.Open,
+		Budget = T.Hook.Budget,
+		Cache = T.Hook.Cache,
+		Fresh = function(): any
+			Asked += 1
+			return nil
+		end,
+	}
+	local Store = Built(T, "CaseFollowsFresh", Hook)
+
+	Store:Peek("cached", 30):Wait()
+	local Cached = Asked
+
+	Store:Peek("cached", 0):Wait()
+	local Forced = Asked
+
+	Store:Inspect("cached"):Wait()
+	local Captured = Asked
+
+	Store:Peek("cached"):Wait()
+	local Plain = Asked
+
+	T:Is("a peek inside its window, which answers from the copy", Cached, 0)
+	T:Ok("a peek with a MaxAge of zero, which says it always asks", Forced > Cached)
+	T:Ok("an inspect, which a capture is taken with", Captured > Forced)
+	T:Is("a peek with no MaxAge, which promises nothing about a cache", Plain, Captured)
+end)
+
 Cases.Case("a peek with a MaxAge reads the record once and answers the copy after, on this server and on another", function(T: Case)
 	local A, B = T:Bank("nodeA"), T:Bank("nodeB")
 	T:Ok("the edit", Fund(A, KEY, 5))

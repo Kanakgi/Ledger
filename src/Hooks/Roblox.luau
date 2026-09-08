@@ -5,8 +5,9 @@
 
 	Roblox: The datastore and the MemoryStore Ledger writes to in a live game.
 
-	DataStoreService and MemoryStoreService behind the shape everything else takes. It holds no
-	state, so New hands back the same three functions every time.
+	DataStoreService and MemoryStoreService behind the shape everything else takes. Fresh is the
+	options a read carries when it must not be served from the four second cache a datastore keeps,
+	built once and handed back to every caller, since nothing writes to it.
 
 	Return type: A table with New. It answers the Hook shape.
 	Example usage:
@@ -33,10 +34,25 @@ local function Cache(Name: string): Engine.Map
 	return MemoryStoreService:GetHashMap(Name) :: any
 end
 
+local Skip: DataStoreGetOptions? = nil
+
+local function Fresh(): any
+	local Made = Skip
+	if Made ~= nil then
+		return Made
+	end
+
+	local Built = Instance.new("DataStoreGetOptions")
+	Built.UseCache = false
+	Skip = Built
+	return Built
+end
+
 local Held: Hook = table.freeze({
 	Open = Open,
 	Budget = Budget,
 	Cache = Cache,
+	Fresh = Fresh,
 })
 
 local function New(): Hook

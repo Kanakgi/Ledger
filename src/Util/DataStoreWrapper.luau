@@ -8,6 +8,10 @@
 	Each key has its own queue, so writes to one key stay in order. It is handed the scheduler its
 	retries wait on and the hook its calls go to, and carries both for everything underneath it.
 
+	A read asks for Fresh when the caller promised not to answer from a cache. It costs a request
+	that a cached read would not, so only a read that made that promise passes it. A hook with no
+	Fresh reads the way its store reads by default.
+
 	Return type: A table with New.
 	Example usage:
 		local Wrapper = require("./DataStoreWrapper")
@@ -32,7 +36,7 @@ type DataStoreWrapperImpl = {
 	New: (Name: string, Scheduler: Engine.Scheduler, Hook: Engine.Hook, Attempts: number?, Constant: number?, Exponent: number?) -> DataStoreWrapper,
 	GetStore: (self: DataStoreWrapper) -> Engine.Store,
 	AttemptAsync: (self: DataStoreWrapper, Key: string, Operation: (Store: Engine.Store) -> ...any, Handler: Handler?, Limits: Limits?) -> ...any,
-	GetAsync: (self: DataStoreWrapper, Key: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
+	GetAsync: (self: DataStoreWrapper, Key: string, Handler: Handler?, Fresh: boolean?) -> (boolean, any, DataStoreKeyInfo?),
 	UpdateAsync: (self: DataStoreWrapper, Key: string, Transform: Transform, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
 	RemoveAsync: (self: DataStoreWrapper, Key: string, Handler: Handler?) -> (boolean, any, DataStoreKeyInfo?),
 	ListVersionsAsync: (
@@ -99,9 +103,12 @@ function DataStoreWrapper.AttemptAsync(self: DataStoreWrapper, Key: string, Oper
 	end, Handler, Limits)
 end
 
-function DataStoreWrapper.GetAsync(self: DataStoreWrapper, Key: string, Handler: Handler?): (boolean, any, DataStoreKeyInfo?)
+function DataStoreWrapper.GetAsync(self: DataStoreWrapper, Key: string, Handler: Handler?, Fresh: boolean?): (boolean, any, DataStoreKeyInfo?)
+	local Ask = self.Hook.Fresh
+	local Options = if Fresh and Ask ~= nil then Ask() else nil
+
 	return self:AttemptAsync(Key, function(Store: Engine.Store)
-		return Store:GetAsync(Key)
+		return Store:GetAsync(Key, Options)
 	end, Handler)
 end
 

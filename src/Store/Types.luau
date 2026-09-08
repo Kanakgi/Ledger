@@ -244,7 +244,7 @@ export type StoreImpl<D> = {
 	Records: (self: Store<D>) -> LogTypes.Log,
 	Format: (self: Store<D>) -> LogTypes.Shape<D>,
 	Fold: (self: Store<D>, Record: Record) -> D,
-	ReadRecord: (self: Store<D>, Key: string) -> Record,
+	ReadRecord: (self: Store<D>, Key: string, Fresh: boolean?) -> Record,
 
 	Watch: (self: Store<D>, Key: string, Record: Record) -> (),
 	WatchHeld: (self: Store<D>, Key: string, State: any) -> (),
@@ -274,7 +274,7 @@ export type StoreImpl<D> = {
 	Buried: (self: Store<D>, Key: string, Replaced: Record) -> (),
 
 	Copy: (self: Store<D>, Key: string) -> Copy,
-	Recorded: (self: Store<D>, Key: string) -> Source,
+	Recorded: (self: Store<D>, Key: string, Fresh: boolean?) -> Source,
 	Copied: (self: Store<D>, Copy: Copy, Now: number, Force: boolean, Source: Source) -> (any?, Reason?),
 	Degraded: (self: Store<D>, Copy: Copy, Now: number, Source: Source) -> (any?, Reason?),
 	Refilled: (self: Store<D>, Copy: Copy, Now: number, Source: Source, Minted: boolean?) -> (any?, Reason?),
