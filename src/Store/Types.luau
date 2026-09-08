@@ -66,6 +66,8 @@ export type Swept = {
 
 export type Stranded = { Store: Swept, Key: string, Tries: number }
 
+export type Stats = Shapes.Stats
+
 export type SweeperImpl = {
 	__index: SweeperImpl,
 
@@ -312,6 +314,7 @@ export type StoreImpl<D> = {
 	Release: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean, Reason?>,
 	Holds: (self: Store<D>, Key: KeyLike, Field: string) -> Future<number?, Reason?>,
 	Tx: (self: Store<D>, Id: string, Legs: { TxLeg }) -> Future<boolean, Reason?>,
+	Stats: (self: Store<D>) -> Stats,
 	Resettle: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	RecoverTransfers: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,
 	ClearDelivered: (self: Store<D>, Key: KeyLike) -> Future<boolean, Reason?>,

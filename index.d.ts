@@ -60,6 +60,15 @@ declare namespace Ledger {
 		readonly Erased?: number;
 	}
 
+	interface Stats {
+		readonly Requests: number;
+		readonly Markers: number;
+		readonly Misses: number;
+		readonly Loaded: number;
+		readonly Followed: number;
+		readonly Repairing: number;
+	}
+
 	interface HoldOptions {
 		readonly Hold?: number;
 	}
@@ -151,6 +160,7 @@ declare namespace Ledger {
 		ClearDelivered(key: KeyLike): Future<[boolean, Reason | undefined]>;
 		Reset(key: KeyLike): Future<[boolean, Reason | undefined]>;
 		Erase(key: KeyLike): Future<[boolean, Reason | undefined]>;
+		Stats(): Stats;
 		Stale(): Observer<string>;
 		Destroy(): void;
 	}

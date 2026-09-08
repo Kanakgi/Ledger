@@ -8,7 +8,7 @@
 	An op, the record one key holds, and the state a fold gives back. Folded names Ledger's own three
 	fields and leaves the game's own open. Held is one entry of the money set aside.
 
-	Return type: An empty table. The types are Op, Record, HistoryEntry, KeysMode, KeyLike, Held, Folded, Reducer, Migration and Mocked.
+	Return type: An empty table. The types are Op, Record, HistoryEntry, KeysMode, KeyLike, Held, Folded, Reducer, Migration, Stats and Mocked.
 	Example usage:
 		local Shapes = require("./Shapes")
 		type Op = Shapes.Op
@@ -58,6 +58,15 @@ export type Folded = {
 export type Reducer<S> = (State: S, Op: Op) -> S?
 
 export type Migration = ((State: any) -> any) | { Apply: (State: any) -> any, Compatible: boolean? }
+
+export type Stats = {
+	Requests: number,
+	Markers: number,
+	Misses: number,
+	Loaded: number,
+	Followed: number,
+	Repairing: number,
+}
 
 export type Mocked = {
 	Players: number?,

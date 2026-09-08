@@ -122,6 +122,12 @@ export function Positives(): void {
 	const hooked = Ledger.New<Profile>({ Name: "Hooked", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Hook: hook });
 	void hooked;
 
+	const counts = bank.Stats();
+	const requests: number = counts.Requests + counts.Markers + counts.Misses;
+	const following: number = counts.Loaded + counts.Followed + counts.Repairing;
+	void requests;
+	void following;
+
 	const session = shop.Expect(player);
 	const [bought, why] = session.Apply("Buy", { Item: "Sword" });
 	const sure: boolean = bought;

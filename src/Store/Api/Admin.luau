@@ -10,7 +10,12 @@
 	that throw data away, so each says what went with it. The first erase leaves a tombstone. Only an
 	erase that finds an old one removes the key.
 
-	Return type: A table with Failed. It writes Repair, ReapMarkers, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
+	Stats reads back the counts a store already keeps: the requests it and its marker store have
+	spent, the MemoryStore calls that did not answer, the sessions live on this server, the keys it
+	holds a copy of, and the keys the recovery sweep is following for it. Every one of them is a
+	running total for the life of the store rather than a rate, so a caller reads two and subtracts.
+
+	Return type: A table with Failed. It writes Repair, ReapMarkers, Stats, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
 	Example usage:
 		local Admin = require("./Admin")
 		local Ok, Why = self:Erase(1):Wait()
@@ -109,6 +114,29 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 
 	warn(`Ledger: could not tidy up the transaction markers for '{Name}', so they wait for the next pass: {Reaped}`)
 	return 0
+end
+
+local function Misses(Held: { Missed: number }?): number
+	return if Held ~= nil then Held.Missed else 0
+end
+
+function Store.Stats(self: Store): Types.Stats
+	local Mine = self:Swept()
+	local Repairing = 0
+	for _, Entry in self.Sweep.Entries do
+		if Entry.Store == Mine then
+			Repairing += 1
+		end
+	end
+
+	return {
+		Requests = self.Wrapper.Spent,
+		Markers = self.TxWrapper.Spent,
+		Misses = Misses(self.Tallies) + Misses(self.Leases) + Misses(self.Bookings) + Misses(self.Copier),
+		Loaded = TableUtil.Count(self.Loaded),
+		Followed = TableUtil.Count(self.Copies),
+		Repairing = Repairing,
+	}
 end
 
 function Store.Buried(self: Store, Key: string, Replaced: Record)

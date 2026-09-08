@@ -93,6 +93,7 @@ type StoreCommon<D, F> = {
 	ClearDelivered: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
 	Reset: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
 	Erase: (self: any, Key: KeyLike) -> Future<boolean, Reason?>,
+	Stats: (self: any) -> Shapes.Stats,
 	Stale: (self: any) -> Observer<string>,
 	Destroy: (self: any) -> (),
 }
