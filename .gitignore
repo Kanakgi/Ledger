@@ -4,6 +4,8 @@
 *.rbxl.lock
 *.rbxlx.lock
 *.ps1
+!bundle.ps1
+!analyze.ps1
 sourcemap.json
 Packages/
 internal/
