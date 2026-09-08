@@ -30,7 +30,7 @@ local ZSTD_LEVEL = 1
 local MAX_DEPTH = Sizes.Depth
 local FRACTION_MARGIN = 3
 
-local TOO_DEEP = "Measure went deeper than a storable value can nest, so the value is cyclic"
+local TOO_DEEP = `Measure went deeper than the {MAX_DEPTH} levels a storable value may nest, so the value is either cyclic or too deep to store`
 
 local SEVENS = 0x7F7F7F7F
 local HIGH = 0x80808080

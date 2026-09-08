@@ -9,8 +9,11 @@
 	transform runs again when another write landed between its read and its write. The read gives up
 	its turn the way a real one does.
 
-	A transform that yields raises. One that throws cancels the write silently. A listing comes back
-	in a stable order that is not the key order, since a real one gives no order to lean on.
+	A transform that yields raises, and so does one that throws, the way a real datastore answers
+	both. It used to swallow a throw and answer as though the transform had asked to cancel, which
+	reads the same to a caller as a write it chose not to make, so a transform that threw on a field
+	it assumed was there looked like an ordinary no. A listing comes back in a stable order that is
+	not the key order, since a real one gives no order to lean on.
 
 	Return type: A table with New.
 	Example usage:
@@ -231,7 +234,7 @@ function Store.UpdateAsync(self: Store, Key: string, Transform: Transform): (any
 			if type(Next) == "string" and string.find(Next, Messages.YIELDED, 1, true) ~= nil then
 				error(`Ledger mock: the UpdateAsync transform on '{Key}' yielded, take the wait out of it: {Next}`, 0)
 			end
-			return nil, nil
+			error(Next, 0)
 		end
 		if Next == nil then
 			return nil, nil

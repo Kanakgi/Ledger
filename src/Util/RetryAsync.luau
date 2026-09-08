@@ -10,6 +10,9 @@
 	the cap again on each attempt rather than once. A caller that is closing down can lower the cap
 	while a call is already retrying, and the next attempt is the last.
 
+	It says a failure out loud at most once a window and counts the rest, since a datastore having a
+	bad minute fails on every key at once and this is the one place that would say so every time.
+
 	Return type: A function that gives back (Ok, Result).
 	Example usage:
 		local RetryAsync = require("./RetryAsync")
@@ -17,6 +20,7 @@
 --]=]
 
 local Engine = require("./Engine")
+local Windows = require("../Core/Constants/Windows")
 
 local Tagged = require("./Tagged")
 
@@ -28,6 +32,11 @@ export type Limits = {
 	Exponent: number?,
 	Jitter: number?,
 }
+
+local SAY_EVERY = Windows.AUTOSAVE
+
+local Said = 0
+local Counted = 0
 
 local DEFAULT_ATTEMPTS = 5
 local DEFAULT_CONSTANT = 1
@@ -57,7 +66,13 @@ local function RetryAsync(Scheduler: Engine.Scheduler, Callback: () -> ...any, L
 			return table.unpack(Result, 1, Result.n)
 		end
 
-		warn(`Ledger: a call failed on attempt {Attempt} of {Allowed} and will be tried again: {Result[2]}`)
+		Counted += 1
+		local Now = Scheduler.Now()
+		if Now - Said >= SAY_EVERY then
+			warn(`Ledger: a call failed on attempt {Attempt} of {Allowed} and will be tried again. {Counted} failed attempt(s) since the last of these: {Result[2]}`)
+			Counted = 0
+			Said = Now
+		end
 
 		local Backoff = Constant + Exponent ^ Attempt + Scheduler.Roll() * Jitter
 		if Backoff > 0 then
