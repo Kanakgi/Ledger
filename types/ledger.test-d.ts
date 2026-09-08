@@ -122,13 +122,6 @@ export function Positives(): void {
 	const hooked = Ledger.New<Profile>({ Name: "Hooked", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Hook: hook });
 	void hooked;
 
-	Ledger.OnDiagnostic((message) => {
-		const said: string = message;
-		void said;
-	});
-	Ledger.OnDiagnostic(undefined);
-	Ledger.OnDiagnostic();
-
 	const session = shop.Expect(player);
 	const [bought, why] = session.Apply("Buy", { Item: "Sword" });
 	const sure: boolean = bought;
@@ -191,6 +184,13 @@ export function Positives(): void {
 			void n;
 		});
 	gold.Disconnect();
+
+	Ledger.OnDiagnostic((message) => {
+		const said: string = message;
+		void said;
+	});
+	Ledger.OnDiagnostic(undefined);
+	Ledger.OnDiagnostic();
 	bank.Stale().Subscribe((key) => {
 		const k: string = key;
 		void k;
