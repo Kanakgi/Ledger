@@ -22,7 +22,9 @@
 
 	A bump writes nothing to MemoryStore. This server lays its own bumps over the sum it answers, and
 	other servers see them at the next refill. A bump carries no name, so one that answers Unresolved
-	may already have counted and is not asked again.
+	may already have counted and is not asked again. Bumps made in the same second share one bucket,
+	and reading this server's own shard closes the bucket open at the time, so no bucket ever holds
+	bumps from both sides of that read and the overlay counts each bump exactly once.
 
 	A transaction leases each key before it drives, in one fixed order, and lets go on every exit.
 	The marker still decides. A lease it cannot take or read means drive without one. A key another
@@ -124,11 +126,15 @@ local function Over(Held: Recent): number
 	return Sum
 end
 
+local function Sealed(Held: Recent, Seq: number)
+	Held.Sealed = if Held.Sealed ~= nil and Held.Sealed > Seq then Held.Sealed else Seq
+end
+
 local function Bumped(Held: Recent, Seq: number, Now: number, Amount: number)
 	local Bumps = Held.Bumps
 	local Last = Bumps[#Bumps]
-	local Mark = Held.Mark
-	if Last ~= nil and Last.At == Now and (Mark == nil or Last.Seq > Mark) then
+	local Shut = Held.Sealed
+	if Last ~= nil and Last.At == Now and (Shut == nil or Last.Seq > Shut) then
 		Last.Amount += Amount
 		return
 	end
@@ -720,6 +726,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 			Refill = function(_Copy: Copy): (any?, number?, Reason?)
 				local Own = Tally.Shard(Name, Mine)
 				local Counted = self.Bumped
+				Sealed(Held, Counted)
 				local Sum = 0
 				local Read: { number } = table.create(Count) :: { number }
 				for Index, Key in Tally.Keys(Name, Count) do
@@ -734,6 +741,7 @@ function Store.Total(self: Store, Name: string, Field: string, MaxAge: number?):
 					Sum += Tally.Counted(State, Field)
 					if Key == Own then
 						Counted = self.Bumped
+						Sealed(Held, Counted)
 					end
 				end
 

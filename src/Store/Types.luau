@@ -152,6 +152,7 @@ export type Recent = {
 	Sum: number,
 	Floor: number?,
 	Mark: number?,
+	Sealed: number?,
 	OwnAt: number?,
 	OwnMark: number?,
 	Bumps: { Tally.Bucket },
