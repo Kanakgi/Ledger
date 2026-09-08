@@ -79,6 +79,7 @@ type StoreCommon<D, F> = {
 	Peek: (self: any, Key: KeyLike, MaxAge: number?) -> Future<D?, Reason?>,
 	Follow: (self: any, Key: KeyLike) -> Observer<D>,
 	Inspect: (self: any, Key: KeyLike) -> Future<Record<D>?, Reason?>,
+	Diagnose: (self: any, Key: KeyLike) -> Future<Shapes.Diagnosis?, Reason?>,
 	DidApply: (self: any, Key: KeyLike, Id: string) -> Future<boolean?, Reason?>,
 	History: (self: any, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,
 	PeekVersion: (self: any, Key: KeyLike, Version: string) -> Future<D?, Reason?>,

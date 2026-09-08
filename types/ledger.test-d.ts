@@ -171,6 +171,18 @@ export function Positives(): void {
 	const landedForSure: boolean = landed;
 	void landedForSure;
 
+	const [diagnosis, diagnosisWhy] = bank.Diagnose("42").Wait();
+	if (diagnosis !== undefined) {
+		const parked: ReadonlyArray<string> = diagnosis.Parked;
+		const blocking: string | undefined = diagnosis.Blocking;
+		const stuck: boolean = diagnosis.Entombed || diagnosis.Overgrown || parked.size() > 0;
+		void parked;
+		void blocking;
+		void stuck;
+	}
+	const diagnosisReason: Ledger.Reason | undefined = diagnosisWhy;
+	void diagnosisReason;
+
 	const [landedOrNot] = open.Flush().Wait(5);
 	const landedMaybe: boolean | undefined = landedOrNot;
 	void landedMaybe;

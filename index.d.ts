@@ -60,6 +60,23 @@ declare namespace Ledger {
 		readonly Erased?: number;
 	}
 
+	interface Diagnosis {
+		readonly Key: string;
+		readonly Ops: number;
+		readonly Seen: number;
+		readonly LogBytes: number;
+		readonly StateBytes: number;
+		readonly Version?: number;
+		readonly Floor?: number;
+		readonly Erased?: number;
+		readonly Entombed: boolean;
+		readonly Overgrown: boolean;
+		readonly Parked: ReadonlyArray<string>;
+		readonly Blocking?: string;
+		readonly Held: number;
+		readonly Names: number;
+	}
+
 	interface HoldOptions {
 		readonly Hold?: number;
 	}
@@ -137,6 +154,7 @@ declare namespace Ledger {
 		Peek(key: KeyLike, maxAge?: number): Future<[D | undefined, Reason | undefined]>;
 		Follow(key: KeyLike): Observer<D>;
 		Inspect(key: KeyLike): Future<[Record<D> | undefined, Reason | undefined]>;
+		Diagnose(key: KeyLike): Future<[Diagnosis | undefined, Reason | undefined]>;
 		DidApply(key: KeyLike, id: string): Future<[boolean | undefined, Reason | undefined]>;
 		History(key: KeyLike, limit?: number): Future<[ReadonlyArray<HistoryEntry> | undefined, Reason | undefined]>;
 		PeekVersion(key: KeyLike, version: string): Future<[D | undefined, Reason | undefined]>;

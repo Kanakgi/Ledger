@@ -10,7 +10,14 @@
 	that throw data away, so each says what went with it. The first erase leaves a tombstone. Only an
 	erase that finds an old one removes the key.
 
-	Return type: A table with Failed. It writes Repair, ReapMarkers, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
+	Diagnose answers why a key is the way it is, in the terms the refusals are written in. Which
+	transactions are parked on it, which op kind stops it compacting, how long its log is and how
+	big its state is against the caps, whether it is entombed and until when, how much is set aside
+	on it and how many applied names it remembers. Every one of those is something a reader of the
+	record would have had to work out, and every one of them is a reason a write gets turned away.
+	It reads and folds and touches nothing else, so it is safe to run before a capture.
+
+	Return type: A table with Failed. It writes Repair, ReapMarkers, Diagnose, Buried, HeldOn, HandOver, Resettle, RecoverTransfers, ClearDelivered, Reset and Erase onto the class.
 	Example usage:
 		local Admin = require("./Admin")
 		local Ok, Why = self:Erase(1):Wait()
@@ -24,6 +31,7 @@ local Errors = require("../../Core/Errors")
 local Reasons = require("../../Core/Constants/Reasons")
 local Shapes = require("../../Core/Shapes")
 local Mark = require("../../Encode/Mark")
+local Measure = require("../../Encode/Measure")
 local Compact = require("../../Record/Compact")
 local Log = require("../../Record/Log")
 local NewOp = require("../../Record/NewOp")
@@ -109,6 +117,44 @@ function Store.ReapMarkers(self: Store, Shards: number?, Limit: number?): number
 
 	warn(`Ledger: could not tidy up the transaction markers for '{Name}', so they wait for the next pass: {Reaped}`)
 	return 0
+end
+
+function Store.Diagnose(self: Store, Key: KeyLike): Future<Shapes.Diagnosis?, Reason?>
+	local Resolved = self:Resolve(Key, "Diagnose")
+
+	return Future.New(function(): (Shapes.Diagnosis?, Reason?)
+		local Ok, Held = pcall(function(): Shapes.Diagnosis
+			local Record = self:ReadRecord(Resolved)
+			local Parked = TxStamp.PendingIds(Record)
+
+			local Read, State = pcall(function(): any
+				return self:Fold(Schema.Detached(Record))
+			end)
+			local Folded: any = if Read then State else nil
+
+			return {
+				Key = Resolved,
+				Ops = #Record.Ops,
+				Seen = #Record.Seen,
+				LogBytes = Measure(Record.Ops),
+				StateBytes = Compact.Bulk(Record),
+				Version = Record.Version,
+				Floor = Record.Floor,
+				Erased = Record.Erased,
+				Entombed = Log.Entombed(Record),
+				Overgrown = Compact.Overgrown(Record),
+				Parked = Parked,
+				Blocking = Compact.Blocked(Record, self:Format()),
+				Held = if Folded ~= nil then TableUtil.Count(Folded._Held) else 0,
+				Names = if Folded ~= nil then TableUtil.Count(Folded._Received) else 0,
+			}
+		end)
+
+		if not Ok then
+			return nil, Failed("diagnose", Resolved, Held)
+		end
+		return Held, nil
+	end)
 end
 
 function Store.Buried(self: Store, Key: string, Replaced: Record)

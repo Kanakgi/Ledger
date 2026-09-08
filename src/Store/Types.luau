@@ -298,6 +298,7 @@ export type StoreImpl<D> = {
 	Peek: (self: Store<D>, Key: KeyLike, MaxAge: number?) -> Future<D?, Reason?>,
 	Follow: (self: Store<D>, Key: KeyLike) -> Observer.Observer<D>,
 	Inspect: (self: Store<D>, Key: KeyLike) -> Future<Record?, Reason?>,
+	Diagnose: (self: Store<D>, Key: KeyLike) -> Future<Shapes.Diagnosis?, Reason?>,
 	DidApply: (self: Store<D>, Key: KeyLike, Id: string) -> Future<boolean?, Reason?>,
 	History: (self: Store<D>, Key: KeyLike, Limit: number?) -> Future<{ HistoryEntry }?, Reason?>,
 	PeekVersion: (self: Store<D>, Key: KeyLike, Version: string) -> Future<D?, Reason?>,
