@@ -7,7 +7,10 @@
 
 	Apply is hopeful: it folds against live state, answers at once, and queues the op. Commit writes
 	before it answers, and a commit whose op has already been folded into the snapshot cannot be
-	answered and says so. Flush pushes what is queued, Compact folds the log into a snapshot, and
+	answered and says so. A commit whose op the sift holds back writes again once the leg it was
+	waiting on settles, a few times at most: the wait between polls paces the parked case, and
+	nothing paces this one but the count, since another server can park a fresh leg as fast as this
+	one clears the last. Flush pushes what is queued, Compact folds the log into a snapshot, and
 	Release is the last save on the way out. The fence is taken on load and dropped once the erase it
 	marks has run out. A session the fence or a newer build stopped keeps nothing queued and answers
 	why on every save after.
@@ -48,6 +51,7 @@ type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 export type Session<S> = Types.Session<S>
 
 local MAX_PENDING = 4096
+local MAX_APPENDS = 4
 
 local REFUSED = Reasons.Refused
 local BACKLOG = Reasons.Backlog
@@ -195,9 +199,11 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 			local Written, _, Waiting = Rebuild.Append(self, { Op })
 			local Stored = self:Settled(Written)
 			local Deadline = Clock.Now() + Windows.TX + Windows.POLL
+			local Tries = 0
 			while true do
 				local Pending = TxStamp.HasPending(Stored)
-				if not Pending and #Waiting > 0 and Clock.Now() < Deadline then
+				if not Pending and #Waiting > 0 and Tries < MAX_APPENDS and Clock.Now() < Deadline then
+					Tries += 1
 					Written, _, Waiting = Rebuild.Append(self, { Op })
 					Stored = self:Settled(Written)
 					continue
