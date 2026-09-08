@@ -13,7 +13,7 @@
 	Each store remembers which part of a bucket to write to next. Two stores keep their own keys, and
 	neither one fills the other's.
 
-	Return type: A table with Shard, Key, Named, Prefix, At, Mine, Add and Carry.
+	Return type: A table with Shard, Key, Named, Block, Prefix, Blocks, At, Mine, Add, Carry and BACK.
 	Example usage:
 		local Cleanup = require("./Cleanup")
 		Cleanup.Add(TxStore, "trade1")

@@ -9,7 +9,7 @@
 	out stores and hash maps, and each spends from its service. Every shape is named here rather than
 	in any of those files.
 
-	Return type: An empty table. The types are Options, KeyInfo, Entry, Slot, Transform, Allowance, Budget, Lane, Pages, Store, Item, MapTransform, HashMap and Service.
+	Return type: An empty table. The types are Options, KeyInfo, Entry, Slot, Transform, Allowance, Budget, Lane, Pages, PagesImpl, Store, StoreImpl, Item, MapTransform, HashMap, HashMapImpl, Service and ServiceImpl.
 	Example usage:
 		local Types = require("./Types")
 		type Service = Types.Service

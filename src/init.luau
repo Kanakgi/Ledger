@@ -10,7 +10,7 @@
 	CloseAll saves everything on the way down. A store takes its scheduler and datastore as options.
 	Mock puts one on a fake datastore that nothing outlives.
 
-	Return type: A table with Reason, New, NewTyped, Sweep and CloseAll.
+	Return type: A table with Reason, New, NewTyped, Id, Sweep and CloseAll.
 	Example usage:
 		local Ledger = require(ServerStorage.Ledger)
 		local Bank = Ledger.New({ Name = "Bank", Default = { Gold = 0 }, Reducer = Reducer })

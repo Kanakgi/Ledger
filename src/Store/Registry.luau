@@ -9,7 +9,7 @@
 	hook a store is built with by default. Use replaces those defaults and refuses once a store is
 	live. The sweep is built on first use rather than on require.
 
-	Return type: A table with Stores, Claimed, Shutting, Defaults, Mock and Sweep.
+	Return type: A table with Stores, Claimed, Shutting, Defaults, Mock, Unmock and Sweep.
 	Example usage:
 		local Registry = require("./Registry")
 		Registry.Sweep():Add(Store:Swept(), Key)

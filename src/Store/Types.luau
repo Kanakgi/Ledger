@@ -9,7 +9,7 @@
 	as the sweep sees it: six plain functions carrying no self, the same shape the scheduler and the
 	hook take.
 
-	Return type: An empty table. The types are Allow, Swept, Stranded, SweeperImpl, Sweeper, LoadedEntry, LoadPhase, Meter, Hold, Copied, Copy, Recent, Source, Fields, StoreImpl and Store.
+	Return type: An empty table. The types are Allow, Claimed, Reserved, Dropped, Swept, Stranded, SweeperImpl, Sweeper, LoadedEntry, LoadPhase, Meter, Hold, Copied, Copy, Recent, Queued, Batched, Bookmark, Reaping, Source, Fields, StoreImpl and Store.
 	Example usage:
 		local Types = require("./Types")
 		type Store = Types.Store<D>

@@ -9,7 +9,7 @@
 	none. A cursor names a place in the listing rather than a row of it. The last page carries no
 	cursor.
 
-	Return type: A table with New.
+	Return type: A table with New and Chunked.
 	Example usage:
 		local Pages = require("./Pages")
 		local Book = Pages.New(Rows, 25, 25)

@@ -14,7 +14,7 @@
 	shard and gives back the next one. One server still covers every shard, over as many passes as
 	there are shards. Only the background pass is bounded. An operator gets the whole walk.
 
-	Return type: A table with Reap. The type is Reaping.
+	Return type: A table with Reap. The types are Bookmark and Reaping.
 	Example usage:
 		local Reap = require("./Reap")
 		local Count, Next = Reap.Reap(TxStore, Lookup)

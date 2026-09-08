@@ -8,7 +8,7 @@
 	the tally name from the shard number in a key. FIELD is where the running total lives. MAP is the
 	MemoryStore map that holds a summed total.
 
-	Return type: A table with SHARDS, PART, FIELD and MAP.
+	Return type: A table with SHARDS, MOST, PART, FIELD and MAP.
 	Example usage:
 		local Shards = require("./Shards")
 		local Key = `{Name}{Shards.PART}{Index}`
