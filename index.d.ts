@@ -203,6 +203,7 @@ declare namespace Ledger {
 		readonly Id: (this: void) => string;
 		readonly Sweep: (this: void) => void;
 		readonly CloseAll: (this: void) => void;
+		readonly OnDiagnostic: (this: void, heard?: (this: void, message: string) => void) => void;
 	}
 }
 

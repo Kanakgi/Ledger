@@ -19,6 +19,7 @@
 
 local Engine = require("./Engine")
 local Messages = require("../Core/Constants/Messages")
+local Report = require("../Core/Report")
 
 local function SetInterval(Scheduler: Engine.Scheduler, Seconds: number, Callback: (Count: number) -> ...number?, Offset: number?): thread
 	return Scheduler.Spawn(function()
@@ -33,7 +34,7 @@ local function SetInterval(Scheduler: Engine.Scheduler, Seconds: number, Callbac
 			Count += 1
 			local Ok, Next = pcall(Callback, Count)
 			if not Ok then
-				warn(`{Messages.ACCUSED} a job Ledger runs on a timer threw, and it keeps running. please report this: {Next}`)
+				Report.Say(`{Messages.ACCUSED} a job Ledger runs on a timer threw, and it keeps running. please report this: {Next}`)
 			elseif type(Next) == "number" and Next > 0 then
 				Interval = Next
 			end

@@ -33,6 +33,7 @@ local Marker = require("./Marker")
 local Cleanup = require("./Cleanup")
 local Resolve = require("./Resolve")
 local Types = require("./Types")
+local Report = require("../../Core/Report")
 
 type Op = Shapes.Op
 type Reason = Reasons.Reason
@@ -123,15 +124,15 @@ local function PrepareAll(Legs: { Leg }, Ops: { Op }, Floor: number, PerLeg: num
 		elseif Verdict == "Busy" then
 			return Prepared, Settled, BUSY
 		elseif Verdict == "Spent" then
-			warn(`Ledger: transaction '{Ops[Index].Tx}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
+			Report.Say(`Ledger: transaction '{Ops[Index].Tx}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
 			return Prepared, Settled, SPENT
 		elseif Verdict == "Rejected" then
 			return Prepared, Settled, REFUSED
 		elseif Verdict == "Full" then
-			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key holds more unsaved ops than it can take. nothing was applied`)
+			Report.Say(`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key holds more unsaved ops than it can take. nothing was applied`)
 			return Prepared, Settled, FULL
 		elseif Verdict == "Erased" then
-			warn(`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key was erased and is turned away until its tomb runs out. nothing was applied`)
+			Report.Say(`Ledger: transaction '{Ops[Index].Tx}' cannot touch '{Legs[Index].Key}', that key was erased and is turned away until its tomb runs out. nothing was applied`)
 			return Prepared, Settled, REFUSED
 		else
 			local Unreachable: never = Verdict
@@ -145,7 +146,7 @@ end
 local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Txid: string, Keys: string, Terms: string, Print: string, Floor: number, PerLeg: number?): Pass
 	local Created, Gen, Born, Minted = Marker.Create(TxStore, Txid, #Legs, Keys, Terms)
 	if Created == Transactions.MISMATCH then
-		warn(`Ledger: transaction '{Txid}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
+		Report.Say(`Ledger: transaction '{Txid}' was already used for different keys or a different amount. nothing was applied, pick a new name`)
 		return { Committed = false, Why = SPENT, Again = false, Reached = Floor, Parked = Floor > 0 }
 	end
 	if Created == Transactions.UNWRITTEN then
@@ -190,7 +191,7 @@ local function RunOnce(TxStore: DataStoreWrapper, Legs: { Leg }, Ops: { Op }, Tx
 		return { Committed = false, Why = SPENT, Again = true, Reached = Prepared, Parked = Stranded }
 	end
 	if Split then
-		warn(`Ledger: transaction '{Txid}' had already gone through on some of its keys and not others, so Ledger cancelled it`)
+		Report.Say(`Ledger: transaction '{Txid}' had already gone through on some of its keys and not others, so Ledger cancelled it`)
 		return { Committed = false, Why = SPENT, Again = false, Reached = Prepared, Parked = Stranded }
 	end
 	return { Committed = false, Why = Cause, Again = Cause == UNRESOLVED, Reached = Prepared, Parked = Stranded }
@@ -199,7 +200,7 @@ end
 local function LegOp(Id: string, Index: number, Leg: Leg, Home: string): Op
 	local Op: { [any]: any } = if Leg.Fields then TableUtil.DeepCopy(Leg.Fields) else {}
 	if Op.Id ~= nil or Op.Kind ~= nil then
-		warn(`Ledger: transaction leg '{Leg.Kind}' passed Id or Kind in its fields. those two belong to Ledger, so they got overwritten`)
+		Report.Say(`Ledger: transaction leg '{Leg.Kind}' passed Id or Kind in its fields. those two belong to Ledger, so they got overwritten`)
 	end
 	Op.Id = `tx:{Id}:{Index}`
 	Op.Kind = Leg.Kind
@@ -247,7 +248,7 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node:
 
 	local Added = Clock.Now()
 	if not Cleanup.Add(TxStore, Home, Id) then
-		warn(`Ledger: transaction '{Id}' was not started, Ledger could not write it down first. nothing was applied, try again`)
+		Report.Say(`Ledger: transaction '{Id}' was not started, Ledger could not write it down first. nothing was applied, try again`)
 		return false, UNRESOLVED, false
 	end
 
@@ -272,9 +273,9 @@ local function Drive(TxStore: DataStoreWrapper, Legs: { Leg }, Id: string, Node:
 	end
 
 	if Last == UNRESOLVED then
-		warn(`Ledger: transaction '{Id}' has no answer yet and might still go through. read the keys again instead of retrying it under a new name`)
+		Report.Say(`Ledger: transaction '{Id}' has no answer yet and might still go through. read the keys again instead of retrying it under a new name`)
 	elseif Last == SPENT then
-		warn(`Ledger: transaction '{Id}' could not get through and changed nothing. that name is spent now, so use a new one`)
+		Report.Say(`Ledger: transaction '{Id}' could not get through and changed nothing. that name is spent now, so use a new one`)
 	end
 
 	Enrolled(TxStore, Home, Id, Added)

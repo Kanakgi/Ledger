@@ -19,6 +19,7 @@
 local Engine = require("./Engine")
 
 local Tagged = require("./Tagged")
+local Report = require("../Core/Report")
 
 type Handler = (() -> ...any) -> (boolean, ...any)
 
@@ -57,7 +58,7 @@ local function RetryAsync(Scheduler: Engine.Scheduler, Callback: () -> ...any, L
 			return table.unpack(Result, 1, Result.n)
 		end
 
-		warn(`Ledger: a call failed on attempt {Attempt} of {Allowed} and will be tried again: {Result[2]}`)
+		Report.Say(`Ledger: a call failed on attempt {Attempt} of {Allowed} and will be tried again: {Result[2]}`)
 
 		local Backoff = Constant + Exponent ^ Attempt + Scheduler.Roll() * Jitter
 		if Backoff > 0 then

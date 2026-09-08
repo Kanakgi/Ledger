@@ -32,6 +32,7 @@ local LogTypes = require("../../Record/Types")
 local Marker = require("./Marker")
 local Cleanup = require("./Cleanup")
 local Types = require("./Types")
+local Report = require("../../Core/Report")
 
 type Record = Shapes.Record<any>
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
@@ -154,14 +155,14 @@ local function Gone(Walk: Walk, Txid: string): (boolean, boolean)
 			end
 
 			if not Hushed and Walk.Now - Updated <= Windows.STUCK then
-				warn(
+				Report.Say(
 					`Ledger: transaction '{Txid}' names no keys Ledger can read, so nothing can prove it is finished. Ledger reads it again every pass until it is {Windows.STUCK // Windows.DAY} days old. there may be more of these than the one named here. take them off by hand once every key they touched has forgotten them`
 				)
 				return false, false
 			end
 
 			if not Hushed then
-				warn(
+				Report.Say(
 					`Ledger: transaction '{Txid}' names no keys Ledger can read and nothing has touched it for {Windows.STUCK // Windows.DAY} days. nothing can ever prove it is finished, so it is taken off for good. any part of it still waiting on a key settles as cancelled now, check the audit log`
 				)
 			end

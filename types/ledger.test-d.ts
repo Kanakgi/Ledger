@@ -20,7 +20,7 @@ interface Ops {
 declare const player: Player;
 declare const DataStoreService: DataStoreService;
 
-export type SixEntries = Expect<Equal<keyof typeof Ledger, "Reason" | "New" | "NewTyped" | "Id" | "Sweep" | "CloseAll">>;
+export type SevenEntries = Expect<Equal<keyof typeof Ledger, "Reason" | "New" | "NewTyped" | "Id" | "Sweep" | "CloseAll" | "OnDiagnostic">>;
 export type IdIsDotCalled = Expect<Equal<ThisParameterType<typeof Ledger.Id>, void>>;
 export type IdIsAString = Expect<Equal<ReturnType<typeof Ledger.Id>, string>>;
 export type ReasonNamesEveryReason = Expect<Equal<keyof typeof Ledger.Reason, Ledger.Reason>>;
@@ -121,6 +121,13 @@ export function Positives(): void {
 	};
 	const hooked = Ledger.New<Profile>({ Name: "Hooked", Default: { Gold: 0, Items: {} }, Reducer: OpenReducer, Hook: hook });
 	void hooked;
+
+	Ledger.OnDiagnostic((message) => {
+		const said: string = message;
+		void said;
+	});
+	Ledger.OnDiagnostic(undefined);
+	Ledger.OnDiagnostic();
 
 	const session = shop.Expect(player);
 	const [bought, why] = session.Apply("Buy", { Item: "Sword" });

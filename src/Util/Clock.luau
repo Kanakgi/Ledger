@@ -18,6 +18,7 @@
 
 local Engine = require("./Engine")
 local Roblox = require("../Schedulers/Roblox")
+local Report = require("../Core/Report")
 
 local YEAR = 31556952
 local CENTURY = 100 * YEAR
@@ -34,7 +35,7 @@ local function Validate(Reads: () -> number)
 		return
 	end
 
-	warn(`Ledger: the clock you gave reads {Value} and the real one reads {Held}. Ledger counts in seconds since 1970, so give it seconds`)
+	Report.Say(`Ledger: the clock you gave reads {Value} and the real one reads {Held}. Ledger counts in seconds since 1970, so give it seconds`)
 end
 
 local function Use(Scheduler: Engine.Scheduler?)

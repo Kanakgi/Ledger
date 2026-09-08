@@ -25,6 +25,7 @@ local Windows = require("../Core/Constants/Windows")
 
 local NoYield = require("./NoYield")
 local ThreadQueue = require("./ThreadQueue")
+local Report = require("../Core/Report")
 
 type ThreadQueue = ThreadQueue.ThreadQueue
 type Transform = (any) -> any
@@ -105,7 +106,7 @@ function MemoryStoreWrapper.Miss(self: MemoryStoreWrapper, Err: any)
 		return
 	end
 
-	warn(`Ledger: MemoryStore did not answer for '{self.Name}', so this server carried on without it. {self.Counted} miss(es) since the last of these: {tostring(Err)}`)
+	Report.Say(`Ledger: MemoryStore did not answer for '{self.Name}', so this server carried on without it. {self.Counted} miss(es) since the last of these: {tostring(Err)}`)
 	self.Counted = 0
 	self.Said = Now
 end

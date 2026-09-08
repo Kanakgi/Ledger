@@ -24,6 +24,7 @@ local Applied = require("../Core/Applied")
 local Kinds = require("../Core/Constants/Kinds")
 local Layer = require("./Layer")
 local Shapes = require("../Core/Shapes")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Data = Shapes.Folded
@@ -137,7 +138,7 @@ local function Expiring(Data: Data, Op: Op, Balance: string?): Data?
 	Next._Held = TableUtil.Some(Rest)
 
 	if Next[Field] < (Data[Field] or 0) then
-		warn(`{Messages.ACCUSED} giving transfer {Tid} back left the sender with less than they started with`)
+		Report.Say(`{Messages.ACCUSED} giving transfer {Tid} back left the sender with less than they started with`)
 		return nil
 	end
 	return Next

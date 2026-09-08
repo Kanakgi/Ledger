@@ -19,6 +19,7 @@
 local Clock = require("./Clock")
 
 local Threads = require("./Threads")
+local Report = require("../Core/Report")
 
 type Packed = { n: number, [number]: any }
 
@@ -119,7 +120,7 @@ local function FutureTask<Args..., Ret...>(Callback: (Args...) -> Ret..., Inst: 
 	Private.Result = Result
 
 	if not Result[1] then
-		warn(`Ledger: work Ledger was doing in the background threw, so whoever waited on it gets nothing back: {tostring(Result[2])}`)
+		Report.Say(`Ledger: work Ledger was doing in the background threw, so whoever waited on it gets nothing back: {tostring(Result[2])}`)
 	end
 
 	Finish(Private, Unpack(Private))

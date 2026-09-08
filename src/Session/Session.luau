@@ -37,6 +37,7 @@ local Tx = require("../Protocol/Tx")
 local Admit = require("./Admit")
 local Rebuild = require("./Rebuild")
 local Types = require("./Types")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
@@ -98,7 +99,7 @@ local function Load<S>(Records: LogTypes.Log, Format: LogTypes.Shape<S>, Key: st
 			Rebuild.Rebuild(Active, Stored)
 		end)
 		if not Ok then
-			warn(`Ledger: could not load '{Key}': {Reason}`)
+			Report.Say(`Ledger: could not load '{Key}': {Reason}`)
 			return nil, Errors.Reason(Reason)
 		end
 
@@ -113,7 +114,7 @@ function Session.Settled<S>(self: Session<S>, Stored: Record): Record
 	if Ok then
 		return Resolved
 	end
-	warn(`Ledger: a transaction parked on '{self.Key}' could not be settled, so this read leaves it out for now: {Resolved}`)
+	Report.Say(`Ledger: a transaction parked on '{self.Key}' could not be settled, so this read leaves it out for now: {Resolved}`)
 	return Stored
 end
 
@@ -136,7 +137,7 @@ end
 
 function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }?): (boolean, Reason?)
 	if #self.Pending >= MAX_PENDING then
-		warn(`Ledger: rejected op '{Kind}', {MAX_PENDING} ops are already pending. saves are not going through, check the datastore`)
+		Report.Say(`Ledger: rejected op '{Kind}', {MAX_PENDING} ops are already pending. saves are not going through, check the datastore`)
 		return false, BACKLOG
 	end
 
@@ -144,7 +145,7 @@ function Session.Apply<S>(self: Session<S>, Kind: string, Fields: { [any]: any }
 
 	local Fine, Wrong = NewOp.Check(Op)
 	if not Fine then
-		warn(`Ledger: rejected op '{Kind}', {Wrong}`)
+		Report.Say(`Ledger: rejected op '{Kind}', {Wrong}`)
 		return false, INVALID
 	end
 
@@ -173,13 +174,13 @@ end
 
 function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 	if type(Op) ~= "table" or type(Op.Id) ~= "string" or #Op.Id == 0 or type(Op.Kind) ~= "string" or #Op.Kind == 0 then
-		warn("Ledger: rejected commit, an op needs a string Id and a string Kind")
+		Report.Say("Ledger: rejected commit, an op needs a string Id and a string Kind")
 		return Rejected(INVALID)
 	end
 
 	local Fine, Wrong = NewOp.Check(Op)
 	if not Fine then
-		warn(`Ledger: rejected commit '{Op.Kind}', {Wrong}`)
+		Report.Say(`Ledger: rejected commit '{Op.Kind}', {Wrong}`)
 		return Rejected(INVALID)
 	end
 
@@ -211,7 +212,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 
 			local Blocked = TxStamp.HasPending(Stored)
 			if Blocked then
-				warn(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on '{self.Key}'. this answer can change once that clears`)
+				Report.Say(`Ledger: commit '{Op.Kind}' answered while a transaction was stuck on '{self.Key}'. this answer can change once that clears`)
 			end
 
 			local Faded = not TxStamp.Holds(Stored, Op.Id) and TxStamp.Carries(Stored, Op.Id)
@@ -221,7 +222,7 @@ function Session.CommitOp<S>(self: Session<S>, Op: Op): Future<boolean, Reason?>
 		end)
 
 		if not Ok then
-			warn(`Ledger: commit '{Op.Kind}' could not be written, though it might still have gone through: {Accepted}`)
+			Report.Say(`Ledger: commit '{Op.Kind}' could not be written, though it might still have gone through: {Accepted}`)
 			return false, UNRESOLVED
 		end
 		if Accepted then
@@ -263,12 +264,12 @@ function Session.Flush<S>(self: Session<S>): Future<boolean, Reason?>
 		if Why == BEHIND then
 			self.Released = true
 			self.Stopped = Why
-			warn(`Ledger: '{self.Key}' now needs a newer build than this server has, so this session is closed and its {#self.Pending} unsaved op(s) are not written. the player has to rejoin`)
+			Report.Say(`Ledger: '{self.Key}' now needs a newer build than this server has, so this session is closed and its {#self.Pending} unsaved op(s) are not written. the player has to rejoin`)
 			self.Pending = {}
 			return false, Why
 		end
 
-		warn(`Ledger: flush for '{self.Key}' failed. its ops stay pending and the next flush picks them up: {Err}`)
+		Report.Say(`Ledger: flush for '{self.Key}' failed. its ops stay pending and the next flush picks them up: {Err}`)
 		return false, Why
 	end)
 end
@@ -299,7 +300,7 @@ function Session.Compact<S>(self: Session<S>): Future<boolean, Reason?>
 			return true, nil
 		end
 
-		warn(`Ledger: compaction for '{self.Key}' failed, so its log just stays long for now: {Err}`)
+		Report.Say(`Ledger: compaction for '{self.Key}' failed, so its log just stays long for now: {Err}`)
 		return false, Errors.Reason(Err)
 	end)
 end
@@ -311,7 +312,7 @@ function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
 		local Stopped = self.Stopped
 		if Stopped ~= nil then
 			if Stopped == REFUSED then
-				warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
+				Report.Say(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
 			end
 			return false, Stopped
 		end
@@ -323,16 +324,16 @@ function Session.Release<S>(self: Session<S>): Future<boolean, Reason?>
 		end)
 		if Ok then
 			if not Whole then
-				warn(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
+				Report.Say(`Ledger: final save for '{self.Key}' wrote nothing, that key was erased while this session held it`)
 				return false, REFUSED
 			end
 			if #self.Pending > 0 then
-				warn(`Ledger: final save for '{self.Key}' left {#self.Pending} op(s) unwritten. they were waiting on a transaction parked on that key and die with this server`)
+				Report.Say(`Ledger: final save for '{self.Key}' left {#self.Pending} op(s) unwritten. they were waiting on a transaction parked on that key and die with this server`)
 			end
 			return true, nil
 		end
 
-		warn(`Ledger: final save for '{self.Key}' failed, so {#self.Pending} unsaved op(s) die with this server: {Err}`)
+		Report.Say(`Ledger: final save for '{self.Key}' failed, so {#self.Pending} unsaved op(s) die with this server: {Err}`)
 		return false, Errors.Reason(Err)
 	end)
 end

@@ -24,6 +24,7 @@ local Windows = require("../Core/Constants/Windows")
 local Transactions = require("../Core/Constants/Transactions")
 local SetInterval = require("../Util/SetInterval")
 local Types = require("./Types")
+local Report = require("../Core/Report")
 
 type Swept = Types.Swept
 type SweeperImpl = Types.SweeperImpl
@@ -66,7 +67,7 @@ function Sweeper.Add(self: Sweeper, Held: Swept, Key: string)
 		return
 	end
 	if self.Count >= SWEEP_LIMIT then
-		warn(`Ledger: the recovery sweep is already following {SWEEP_LIMIT} keys, so nothing retries '{Key}' on its own. call Resettle on it yourself`)
+		Report.Say(`Ledger: the recovery sweep is already following {SWEEP_LIMIT} keys, so nothing retries '{Key}' on its own. call Resettle on it yourself`)
 		return
 	end
 	self.Entries[Mark] = { Store = Held, Key = Key, Tries = 0 }
@@ -186,7 +187,7 @@ function Sweeper.Pass(self: Sweeper)
 			continue
 		end
 
-		warn(
+		Report.Say(
 			`Ledger: gave up retrying '{Entry.Key}' after {SWEEP_TRIES} goes, so whatever is unfinished on it waits for the next write. call Resettle on it yourself: {if Ok
 				then "it still had something pending"
 				else tostring(Clean)}`

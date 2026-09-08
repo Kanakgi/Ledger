@@ -21,6 +21,7 @@ local Messages = require("../Core/Constants/Messages")
 local Tags = require("../Core/Constants/Tags")
 local Applied = require("../Core/Applied")
 local Storable = require("../Encode/Storable")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Reducer<S> = Shapes.Reducer<S>
@@ -55,7 +56,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		local Stamp, At, Print = StampOf(Op)
 		if Stamp ~= nil then
 			if type(At) ~= "number" then
-				warn(`{Messages.ACCUSED} op '{tostring(Op.Kind)}' carries a name with no time on it. Ledger turned the op away, please report this`)
+				Report.Say(`{Messages.ACCUSED} op '{tostring(Op.Kind)}' carries a name with no time on it. Ledger turned the op away, please report this`)
 				return nil
 			end
 			local Marked = table.clone(Plain)
@@ -69,7 +70,7 @@ local function Wrap<S>(Inner: Reducer<S>): Reducer<S>
 		end
 
 		if Plain._Received ~= nil and not TableUtil.DeepEqual(Plain._Received, Data._Received) then
-			warn(`Ledger: your reducer wrote its own _Received on op '{tostring(Op.Kind)}'. Ledger put the applied names back, leave fields starting with an underscore alone`)
+			Report.Say(`Ledger: your reducer wrote its own _Received on op '{tostring(Op.Kind)}'. Ledger put the applied names back, leave fields starting with an underscore alone`)
 		end
 
 		local Kept = table.clone(Plain)

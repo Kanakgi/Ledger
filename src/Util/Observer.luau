@@ -21,6 +21,7 @@
 local Clock = require("./Clock")
 
 local NoYield = require("./NoYield")
+local Report = require("../Core/Report")
 
 export type Connection = {
 	Connected: boolean,
@@ -102,7 +103,7 @@ local function Unlink<T>(self: Node<T>)
 end
 
 local function Threw(Err: any)
-	warn(`Ledger: Observer listener errored: {Err}`)
+	Report.Say(`Ledger: Observer listener errored: {Err}`)
 end
 
 local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
@@ -114,7 +115,7 @@ local function Carry<T>(self: Private<T>, Listener: (T) -> (), Value: T)
 		end
 
 		self.Said = Now
-		warn(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. a listener that never returns leaks a thread for every value pushed`)
+		Report.Say(`Ledger: an Observer listener has run for {SLOW} seconds without finishing. a listener that never returns leaks a thread for every value pushed`)
 	end)
 
 	local Ok, Err = pcall(Listener, Value)

@@ -24,6 +24,7 @@ local Measure = require("../Encode/Measure")
 local Apply = require("../Record/Apply")
 local Rebuild = require("./Rebuild")
 local Types = require("./Types")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Reason = Reasons.Reason
@@ -40,12 +41,12 @@ local UNRESOLVED = Reasons.Unresolved
 local REJECTED: Admitted<any> = table.freeze({ Outcome = "Rejected" }) :: any
 
 local function Refused(Kind: string, Why: Reason, Says: string): Admitted<any>
-	warn(`Ledger: rejected op '{Kind}', {Says}`)
+	Report.Say(`Ledger: rejected op '{Kind}', {Says}`)
 	return { Outcome = "Refused", Why = Why }
 end
 
 local function Rejected(Kind: string, Says: string): Admitted<any>
-	warn(`Ledger: rejected op '{Kind}', {Says}`)
+	Report.Say(`Ledger: rejected op '{Kind}', {Says}`)
 	return REJECTED
 end
 

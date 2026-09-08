@@ -26,6 +26,7 @@ local Ids = require("../../Encode/Ids")
 local Mark = require("../../Encode/Mark")
 local Transactions = require("../../Core/Constants/Transactions")
 local Types = require("./Types")
+local Report = require("../../Core/Report")
 
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 type Marker = Types.Marker
@@ -95,7 +96,7 @@ local function Elsewhere(Name: string, From: DataStoreWrapper): DataStoreWrapper
 
 	if not Mine.Said then
 		Mine.Said = true
-		warn(
+		Report.Say(
 			`Ledger: this server holds {Transactions.MAX_HOMES} transaction homes, so '{Name}' gets a new handle each time. its writes no longer queue, and a shutdown cannot stop its retries. use fewer stores in your transactions`
 		)
 	end

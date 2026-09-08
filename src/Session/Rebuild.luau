@@ -35,6 +35,7 @@ local Schema = require("../Record/Schema")
 local TxStamp = require("../Record/TxStamp")
 local Apply = require("../Record/Apply")
 local Types = require("./Types")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
@@ -173,7 +174,7 @@ local function Push<S>(self: Session<S>): (Record?, boolean?)
 	if Missed == Count and #Turned == 0 and Stored.Erased ~= self.Fence then
 		self.Released = true
 		self.Stopped = Reasons.Refused
-		warn(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
+		Report.Say(`Ledger: '{self.Key}' was erased while this session was live, so its {Count} unsaved op(s) were not written. the session is closed and this player needs to rejoin`)
 		self.Pending = {}
 	end
 
@@ -213,7 +214,7 @@ local function CheckPurity<S>(self: Session<S>, Stored: Record, Base: S, Folded:
 
 	local Fits, Unstorable = Storable.Structure(Folded)
 	if not Fits then
-		warn(`Ledger: '{self.Key}' folds to state a datastore cannot hold, {Unstorable}. no gaps in arrays, no mixing array and string keys, no nan`)
+		Report.Say(`Ledger: '{self.Key}' folds to state a datastore cannot hold, {Unstorable}. no gaps in arrays, no mixing array and string keys, no nan`)
 	end
 	if #Stored.Ops == 0 then
 		return
@@ -225,7 +226,7 @@ local function CheckPurity<S>(self: Session<S>, Stored: Record, Base: S, Folded:
 		return
 	end
 
-	warn(
+	Report.Say(
 		`Ledger: the reducer for '{self.Key}' is not deterministic, so two servers would fold this log differently. replaying the same ops changed {Where}. read only the two arguments, and pass os.time or math.random in on the op instead`
 	)
 end

@@ -17,6 +17,7 @@
 
 local TableUtil = require("../Util/TableUtil")
 local Shapes = require("../Core/Shapes")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Reducer<S> = Shapes.Reducer<S>
@@ -57,7 +58,7 @@ local function Carried(Next: any, Data: Data, Owns: { Owned }): any
 		local Ours = Data[Owned.Field]
 		local Theirs = Plain[Owned.Field]
 		if Theirs ~= nil and Theirs ~= Ours and not TableUtil.DeepEqual(Theirs, Ours) then
-			warn(`Ledger: your reducer wrote its own {Owned.Field}. Ledger put {Owned.Says} back, leave fields starting with an underscore alone`)
+			Report.Say(`Ledger: your reducer wrote its own {Owned.Field}. Ledger put {Owned.Says} back, leave fields starting with an underscore alone`)
 		end
 		Merged[Owned.Field] = Ours
 	end

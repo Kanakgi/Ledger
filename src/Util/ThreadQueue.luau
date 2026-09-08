@@ -21,6 +21,7 @@
 
 local Messages = require("../Core/Constants/Messages")
 local Engine = require("./Engine")
+local Report = require("../Core/Report")
 
 type Entry = {
 	Callback: () -> ...any,
@@ -80,7 +81,7 @@ end
 function ThreadQueue.SubmitAsync(self: ThreadQueue, Callback: () -> ...any): ...any
 	if not self.Busy or self:Abandoned() then
 		if self.Busy then
-			warn(`{Messages.ACCUSED} the thread working through the writes to one key was cancelled, and this call took the {#self.Tasks} waiting on it over. please report this`)
+			Report.Say(`{Messages.ACCUSED} the thread working through the writes to one key was cancelled, and this call took the {#self.Tasks} waiting on it over. please report this`)
 		end
 
 		self.Busy = true

@@ -60,6 +60,7 @@ local Validate = require("../../Core/Validate")
 local Write = require("./Write")
 local Store = require("../Class")
 local Types = require("../Types")
+local Report = require("../../Core/Report")
 
 type Future<T...> = Future.Future<T...>
 type Op = Shapes.Op
@@ -240,7 +241,7 @@ function Store.Edit(self: Store, Key: KeyLike, Kind: string, Fields: { [any]: an
 
 	local Fine, Wrong = NewOp.Check(Op)
 	if not Fine then
-		warn(`Ledger: Edit rejected op '{Kind}', {Wrong}`)
+		Report.Say(`Ledger: Edit rejected op '{Kind}', {Wrong}`)
 		return Rejected(INVALID)
 	end
 
@@ -252,14 +253,14 @@ end
 function Store.EditOp(self: Store, Key: KeyLike, Op: Op): Future<boolean, Reason?>
 	local Resolved = self:Resolve(Key, "EditOp")
 	if type(Op) ~= "table" or type(Op.Id) ~= "string" or #Op.Id == 0 or type(Op.Kind) ~= "string" or #Op.Kind == 0 then
-		warn("Ledger: EditOp rejected the op, an op needs a string Id and a string Kind")
+		Report.Say("Ledger: EditOp rejected the op, an op needs a string Id and a string Kind")
 		return Rejected(INVALID)
 	end
 
 	local Held: Op = TableUtil.DeepCopy(Op)
 	local Fine, Wrong = NewOp.Check(Held)
 	if not Fine then
-		warn(`Ledger: EditOp rejected op '{Held.Kind}', {Wrong}`)
+		Report.Say(`Ledger: EditOp rejected op '{Held.Kind}', {Wrong}`)
 		return Rejected(INVALID)
 	end
 
@@ -290,7 +291,7 @@ function Store.Transfer(self: Store, From: KeyLike, To: KeyLike, Amount: number,
 			return Transfer.Drive(self:Records(), self:Format(), FromKey, ToKey, Amount, Id, Named)
 		end)
 		if not Ok then
-			warn(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
+			Report.Say(`Ledger: the transfer from '{FromKey}' broke inside Ledger: {Moved}`)
 			self.Sweep:Add(self:Swept(), FromKey)
 			return false, UNRESOLVED
 		end
@@ -314,7 +315,7 @@ function Store.Unbooked(self: Store, What: string)
 	end
 
 	Meter.Unbooked = Now
-	warn(`Ledger: {What} on '{self.Options.Name}' needs a MemoryStore and this store has none, so nothing was set aside`)
+	Report.Say(`Ledger: {What} on '{self.Options.Name}' needs a MemoryStore and this store has none, so nothing was set aside`)
 end
 
 function Store.Crowded(self: Store, Key: string, Rid: string, Count: number)
@@ -325,7 +326,7 @@ function Store.Crowded(self: Store, Key: string, Rid: string, Count: number)
 	end
 
 	Meter.Crowded = Now
-	warn(`Ledger: '{Key}' already holds {Count} reservations and has no room for another, so '{Rid}' was not set aside`)
+	Report.Say(`Ledger: '{Key}' already holds {Count} reservations and has no room for another, so '{Rid}' was not set aside`)
 end
 
 function Store.Holding(self: Store, Slot: string, Rid: string, Field: string, Amount: number, Now: number, Ends: number, Stock: number?): (Reserved, number?, number, Hold?)
@@ -500,7 +501,7 @@ function Store.Reserve(self: Store, Key: KeyLike, Field: string, Amount: number,
 			return false, REFUSED
 		end
 		if Answer == Bookings.SPENT and Standing ~= nil then
-			warn(`Ledger: '{Rid}' on '{Resolved}' already holds {Standing.Amount} {Standing.Field}, so it keeps that. pick a new name to hold {Amount} {Field}`)
+			Report.Say(`Ledger: '{Rid}' on '{Resolved}' already holds {Standing.Amount} {Standing.Field}, so it keeps that. pick a new name to hold {Amount} {Field}`)
 			return false, SPENT
 		end
 		if Answer == Bookings.FULL then
@@ -521,7 +522,7 @@ function Store.Confirm(self: Store, Key: KeyLike, Id: string, Kind: string, Fiel
 	Op.Id = `{Bookings.CONFIRM_ID}:{Rid}`
 	local Fine, Wrong = NewOp.Check(Op)
 	if not Fine then
-		warn(`Ledger: Confirm rejected op '{Kind}', {Wrong}`)
+		Report.Say(`Ledger: Confirm rejected op '{Kind}', {Wrong}`)
 		return Rejected(INVALID)
 	end
 
@@ -556,7 +557,7 @@ function Store.Confirm(self: Store, Key: KeyLike, Id: string, Kind: string, Fiel
 		if Ok then
 			self:Dropped(Slot, Rid, State)
 		elseif Why == SPENT then
-			warn(`Ledger: booking '{Rid}' on '{Resolved}' was already spent by an earlier confirm under that name, so nothing was sold. pick a new name for each purchase`)
+			Report.Say(`Ledger: booking '{Rid}' on '{Resolved}' was already spent by an earlier confirm under that name, so nothing was sold. pick a new name for each purchase`)
 		end
 		return Ok, Why
 	end)
@@ -884,7 +885,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 
 		local Fits, Unstorable = LegStorable(Leg)
 		if not Fits then
-			warn(`Ledger: Tx rejected leg {Index} '{Leg.Kind}', {Unstorable}`)
+			Report.Say(`Ledger: Tx rejected leg {Index} '{Leg.Kind}', {Unstorable}`)
 			return Rejected(INVALID)
 		end
 	end
@@ -908,7 +909,7 @@ function Store.Tx(self: Store, Id: string, Legs: { TxLeg }): Future<boolean, Rea
 		Freed(Taken)
 
 		if not Ok then
-			warn(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
+			Report.Say(`Ledger: transaction '{Id}' broke inside Ledger and its legs might still be pending: {Committed}`)
 			Follow(Targets)
 			return false, UNRESOLVED
 		end

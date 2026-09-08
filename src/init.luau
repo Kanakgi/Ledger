@@ -7,10 +7,11 @@
 
 	State is a pure fold of an append only log of ops, and there are no session locks. This file is
 	the whole surface a game can reach. New and NewTyped build a store. Sweep runs a recovery pass.
-	CloseAll saves everything on the way down. A store takes its scheduler and datastore as options.
+	CloseAll saves everything on the way down. OnDiagnostic takes everything Ledger says out loud and
+	hands it to the game instead of the output. A store takes its scheduler and datastore as options.
 	Mock puts one on a fake datastore that nothing outlives.
 
-	Return type: A table with Reason, New, NewTyped, Sweep and CloseAll.
+	Return type: A table with Reason, New, NewTyped, Id, Sweep, CloseAll and OnDiagnostic.
 	Example usage:
 		local Ledger = require(ServerStorage.Ledger)
 		local Bank = Ledger.New({ Name = "Bank", Default = { Gold = 0 }, Reducer = Reducer })
@@ -26,6 +27,7 @@ local Observer = require("@self/Util/Observer")
 local Shapes = require("@self/Core/Shapes")
 local Api = require("@self/Core/Api")
 local Reasons = require("@self/Core/Constants/Reasons")
+local Report = require("@self/Core/Report")
 local TypeFunctions = require("@self/Core/TypeFunctions")
 local Ids = require("@self/Encode/Ids")
 local Tx = require("@self/Protocol/Tx")
@@ -62,6 +64,7 @@ export type Export = {
 	read Id: () -> string,
 	read Sweep: () -> (),
 	read CloseAll: () -> (),
+	read OnDiagnostic: (Heard: ((Message: string) -> ())?) -> (),
 }
 
 local SHUTDOWN_ATTEMPTS = 2
@@ -149,4 +152,5 @@ return table.freeze({
 	Id = Ids.Fresh,
 	Sweep = Sweep,
 	CloseAll = CloseAll,
+	OnDiagnostic = Report.Listen,
 }) :: Export

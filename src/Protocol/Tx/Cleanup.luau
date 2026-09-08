@@ -27,6 +27,7 @@ local Windows = require("../../Core/Constants/Windows")
 local Digest = require("../../Encode/Digest")
 local Ids = require("../../Encode/Ids")
 local Mark = require("../../Encode/Mark")
+local Report = require("../../Core/Report")
 
 type DataStoreWrapper = DataStoreWrapper.DataStoreWrapper
 
@@ -140,7 +141,7 @@ local function Place(TxStore: DataStoreWrapper, Slot: number, Node: string, When
 			Placed = 0
 			local Held = if type(Current) == "string" then Mark.Unpack(Current) else {}
 			if type(Current) == "string" and #Current > 0 and #Held == 0 then
-				warn(
+				Report.Say(
 					`Ledger: the cleanup list key '{Named(Slot, When, Node, Part)}' is not a list of names, so it is left alone. this transaction goes on the next key. whatever was on it cannot be read back`
 				)
 				return nil

@@ -41,6 +41,7 @@ local Apply = require("../../Record/Apply")
 local Tx = require("../../Protocol/Tx")
 local Store = require("../Class")
 local Types = require("../Types")
+local Report = require("../../Core/Report")
 
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
@@ -62,11 +63,11 @@ local function Failed(What: string, Key: string, Err: any): Reason
 	end
 
 	if Why == BEHIND then
-		warn(`Ledger: could not {What} '{Key}', a newer server wrote it and this one cannot read that yet. finish the deploy: {Err}`)
+		Report.Say(`Ledger: could not {What} '{Key}', a newer server wrote it and this one cannot read that yet. finish the deploy: {Err}`)
 		return Why
 	end
 
-	warn(`Ledger: could not {What} '{Key}': {Err}`)
+	Report.Say(`Ledger: could not {What} '{Key}': {Err}`)
 	return Why
 end
 
@@ -114,7 +115,7 @@ function Store.Swelling(self: Store, Key: string, Record: Record)
 		break
 	end
 
-	warn(`Ledger: '{Key}' holds {#Record.Ops} ops it cannot compact away while {Blocking} is parked on it. it keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`)
+	Report.Say(`Ledger: '{Key}' holds {#Record.Ops} ops it cannot compact away while {Blocking} is parked on it. it keeps growing until that settles. {Meter.Swollen} write(s) since the last of these`)
 
 	Meter.Swollen = 0
 	Meter.Said = Now
@@ -132,7 +133,7 @@ function Store.Starved(self: Store, Pool: Enum.DataStoreRequestType)
 	local Records = self.Wrapper.Spent - Meter.Records
 	local Markers = self.TxWrapper.Spent - Meter.Markers
 
-	warn(
+	Report.Say(
 		`Ledger: {Meter.Skipped} autosave(s) skipped on '{self.Options.Name}' with {Pool.Name} budget at {self.Wrapper:Budget(Pool)}, so unsaved ops are piling up. this server spent {Records} request(s) on records and {Markers} on transaction markers since the last of these`
 	)
 
@@ -151,7 +152,7 @@ function Store.Maintain(self: Store, Key: string, Record: Record): Record
 		if Ok then
 			Settled = Resolution
 		else
-			warn(`Ledger: a transaction parked on '{Key}' could not be settled during a write, so it stays parked: {Resolution}`)
+			Report.Say(`Ledger: a transaction parked on '{Key}' could not be settled during a write, so it stays parked: {Resolution}`)
 		end
 	end
 
@@ -172,7 +173,7 @@ function Store.Applies(self: Store, Op: Op, Record: Record): (boolean, boolean, 
 		local Format = self:Format()
 		local Ran, Next = NoYield.Try(Format.Reducer, Format:Fold(Schema.Detached(Record)), Op)
 		if not Ran then
-			warn(`Ledger: rejected op '{Op.Kind}', your reducer threw: {tostring(Next)}`)
+			Report.Say(`Ledger: rejected op '{Op.Kind}', your reducer threw: {tostring(Next)}`)
 		end
 		local Plain = Ran and type(Next) == "table"
 		if not TxStamp.HasPending(Record) then
@@ -255,18 +256,18 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 			return false, CLOSED
 		end
 		if Named == BEHIND then
-			warn(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
+			Report.Say(`Ledger: {What} on '{Key}' was not written, a newer server wrote that record and this one cannot read it yet. finish the deploy: {Result}`)
 			return false, BEHIND
 		end
 		if Named == FULL then
-			warn(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
+			Report.Say(`Ledger: {What} on '{Key}' was not written, that key is carrying more unsaved ops than it can hold: {Result}`)
 			return false, FULL
 		end
 		if Named == BUSY then
 			return false, BUSY
 		end
 
-		warn(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
+		Report.Say(`Ledger: {What} on '{Key}' could not be written, though it might still have gone through: {Result}`)
 		return false, UNRESOLVED
 	end
 
@@ -275,11 +276,11 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 		return false, Denied or REFUSED
 	end
 	if Swollen then
-		warn(`Ledger: {What} on '{Key}' was not written, that key is already at the {Sizes.State} byte state cap and this would make it bigger`)
+		Report.Say(`Ledger: {What} on '{Key}' was not written, that key is already at the {Sizes.State} byte state cap and this would make it bigger`)
 		return false, FULL
 	end
 	if Doubt then
-		warn(`Ledger: {What} on '{Key}' was not written, a transaction is parked on that key and this op only holds if it does not go through. ask again once it settles`)
+		Report.Say(`Ledger: {What} on '{Key}' was not written, a transaction is parked on that key and this op only holds if it does not go through. ask again once it settles`)
 		return false, UNRESOLVED
 	end
 	if not Applied then
@@ -309,7 +310,7 @@ function Store.Written(self: Store, Key: string, Op: Op, What: string, Guard: Al
 	end)
 
 	if not Ok then
-		warn(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
+		Report.Say(`Ledger: {What} on '{Key}' went into the log, but this server could not read the record back to say what it folded to: {Why}`)
 		return false, UNRESOLVED
 	end
 

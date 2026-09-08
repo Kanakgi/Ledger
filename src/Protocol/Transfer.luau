@@ -32,6 +32,7 @@ local Apply = require("../Record/Apply")
 local Schema = require("../Record/Schema")
 local Kinds = require("../Core/Constants/Kinds")
 local Escrow = require("../Layers/Escrow")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
@@ -57,7 +58,7 @@ local function Stopped(Why: Reason): Reserved
 end
 
 local function Spent(Tid: string): Reserved
-	warn(`Ledger: transfer {Tid} already went through for a different amount or a different key. nothing was sent, pick a new name`)
+	Report.Say(`Ledger: transfer {Tid} already went through for a different amount or a different key. nothing was sent, pick a new name`)
 	return Stopped(SPENT)
 end
 
@@ -118,12 +119,12 @@ local function Reserve(Records: Log, Format: Format, From: number | string, To: 
 	local Escrowed = Escrow.Entry(State._Held, Tid)
 	if Escrowed ~= nil then
 		if Escrowed.To ~= To or Escrowed.Amount ~= Amount or Escrowed.Field ~= Field then
-			warn(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}. it pays out that, not the {Amount} to {To} you asked for`)
+			Report.Say(`Ledger: transfer {Tid} already has {Escrowed.Amount} set aside for {Escrowed.To}. it pays out that, not the {Amount} to {To} you asked for`)
 		end
 
 		local At = Escrowed.At
 		if At ~= nil and Clock.Now() - At > Windows.REDRIVE then
-			warn(`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again. recovery owns it now and this call left it alone. it is finished or given back on its own`)
+			Report.Say(`Ledger: transfer {Tid} from {From} has been set aside longer than Ledger sends one again. recovery owns it now and this call left it alone. it is finished or given back on its own`)
 			return Stopped(HELD)
 		end
 
@@ -226,7 +227,7 @@ local function Drive(Records: Log, Format: Format, From: number | string, To: nu
 		return true, nil, nil
 	end
 
-	warn(`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`)
+	Report.Say(`Ledger: transfer {Tid} from {From} took the money but could not hand it over. it is set aside, and Ledger finishes or refunds it on its own: {Why}`)
 	return false, Errors.Reason(Why), true
 end
 

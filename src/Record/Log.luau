@@ -36,6 +36,7 @@ local Rules = require("./Rules")
 local TxStamp = require("./TxStamp")
 local Apply = require("./Apply")
 local Types = require("./Types")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
@@ -439,7 +440,7 @@ function Log.Compact(self: Log, Key: string, Format: Schema<any>): Record
 
 	local Bytes = Measure(Result.After)
 	if Bytes > Sizes.ValueWarn then
-		warn(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {Sizes.Value}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
+		Report.Say(`Ledger: key '{Key}' is {Bytes} bytes and the datastore limit is {Sizes.Value}. saves will start failing if it keeps growing{Compact.Hint(Result.After.Snapshot)}`)
 	end
 
 	local State = Result.After.Bytes
@@ -448,7 +449,7 @@ function Log.Compact(self: Log, Key: string, Format: Schema<any>): Record
 		local Fix = if Ours
 			then "that field is Ledger's own bookkeeping and your game cannot take it out. it grows with the transfers, transactions and reservations this key takes, so spread that work over more keys"
 			else "take out what the game no longer reads, or spread it over more keys"
-		warn(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Sizes.State}{Said}. {Fix}`)
+		Report.Say(`Ledger: the state on key '{Key}' is {State} bytes and Ledger stops taking writes at {Sizes.State}{Said}. {Fix}`)
 	end
 	return Result.After
 end
@@ -463,7 +464,7 @@ function Log.Trim(self: Log, Key: string, Format: Schema<any>, Record: Record): 
 		return Packed
 	end
 
-	warn(`Ledger: could not compact '{Key}'. your write went through fine, the log just stays long: {Packed}`)
+	Report.Say(`Ledger: could not compact '{Key}'. your write went through fine, the log just stays long: {Packed}`)
 	return Record
 end
 

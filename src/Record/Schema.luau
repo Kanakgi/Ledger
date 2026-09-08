@@ -29,6 +29,7 @@ local Fold = require("./Fold")
 local Reconcile = require("./Reconcile")
 local TxStamp = require("./TxStamp")
 local Types = require("./Types")
+local Report = require("../Core/Report")
 
 type Record = Shapes.Record<any>
 type Migration = Shapes.Migration
@@ -69,7 +70,7 @@ local function Restored(Snapshot: any, Kept: { [string]: any }?, Index: number):
 		if TableUtil.DeepEqual(Theirs, Value) then
 			continue
 		end
-		warn(`Ledger: migration {Index} dropped Ledger's own '{Key}'. Ledger put it back, leave fields starting with an underscore alone`)
+		Report.Say(`Ledger: migration {Index} dropped Ledger's own '{Key}'. Ledger put it back, leave fields starting with an underscore alone`)
 	end
 	return Next
 end

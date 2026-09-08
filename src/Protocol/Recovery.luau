@@ -22,6 +22,7 @@ local Tags = require("../Core/Constants/Tags")
 local LogTypes = require("../Record/Types")
 local Kinds = require("../Core/Constants/Kinds")
 local Transfer = require("./Transfer")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Log = LogTypes.Log
@@ -49,7 +50,7 @@ local function Expire(Records: Log, Format: Format, From: number | string, Tid: 
 	end
 
 	local Lost = if type(Entry.Field) == "string" then `{Entry.Amount} {Entry.Field}` else tostring(Entry.Amount)
-	warn(
+	Report.Say(
 		`Ledger: transfer {Tid} from {From} has been stuck over {Windows.PRUNE // Windows.DAY} days. the receiver has no record of it and giving it back could pay twice, so it is written off. check the audit log and pay {Lost} back by hand if it never arrived`
 	)
 	Transfer.Settle(Records, From, Tid, Print)
@@ -60,7 +61,7 @@ local function Redeliver(Records: Log, Format: Format, From: number | string, Ti
 		Transfer.Post(Records, Format, From, Tid, Entry.To, Entry.Amount, Entry.At, Entry.Field)
 	end)
 	if not Ok then
-		warn(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)
+		Report.Say(`Ledger: could not send transfer {Tid} from {From} again. the money stays set aside and the next recovery has another go: {Reason}`)
 	end
 	return Ok
 end
@@ -70,7 +71,7 @@ local function GiveBack(Records: Log, Format: Format, From: number | string, Tid
 		Expire(Records, Format, From, Tid, Entry, Age)
 	end)
 	if not Ok then
-		warn(`Ledger: could not give back transfer {Tid} from {From}. the money stays set aside and the next recovery has another go: {Reason}`)
+		Report.Say(`Ledger: could not give back transfer {Tid} from {From}. the money stays set aside and the next recovery has another go: {Reason}`)
 	end
 	return Ok
 end
@@ -120,7 +121,7 @@ local function Transfers(Records: Log, Format: Format, From: number | string, He
 	end
 
 	if Waiting > 0 then
-		warn(`Ledger: {From} has more unfinished transfers than one pass takes, so {Waiting} of them wait for the next recovery`)
+		Report.Say(`Ledger: {From} has more unfinished transfers than one pass takes, so {Waiting} of them wait for the next recovery`)
 	end
 
 	return Failures == 0 and Waiting == 0 and Starved == 0 and Resting == 0, Moved > 0 or Resting > 0

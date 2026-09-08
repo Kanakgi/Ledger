@@ -21,6 +21,7 @@ local Ids = require("../Encode/Ids")
 local Storable = require("../Encode/Storable")
 local Shapes = require("../Core/Shapes")
 local Windows = require("../Core/Constants/Windows")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 
@@ -60,7 +61,7 @@ local function NewOp(Kind: string, Fields: { [any]: any }?): Op
 
 	local Op: { [any]: any } = if Fields then TableUtil.DeepCopy(Fields) else {}
 	if Op.Id ~= nil or Op.Kind ~= nil or Op.OnceAt ~= nil or Op.Booking ~= nil then
-		warn(`Ledger: op '{Kind}' passed Id, Kind, OnceAt or Booking in its fields. those belong to Ledger, so they got overwritten`)
+		Report.Say(`Ledger: op '{Kind}' passed Id, Kind, OnceAt or Booking in its fields. those belong to Ledger, so they got overwritten`)
 	end
 
 	Op.Id = Ids.Fresh()

@@ -39,6 +39,7 @@ local Schema = require("../../Record/Schema")
 local Write = require("./Write")
 local Store = require("../Class")
 local Types = require("../Types")
+local Report = require("../../Core/Report")
 
 type KeyLike = Shapes.KeyLike
 type Reason = Reasons.Reason
@@ -163,7 +164,7 @@ function Store.Uncopied(self: Store, Key: string, Bytes: number)
 
 	Meter.Uncopied = Now
 	local Why = if Bytes == math.huge then "holds a buffer, which a MemoryStore item cannot" else `is {Bytes} bytes as json and a MemoryStore item holds {MemoryStore.MAX_ITEM}`
-	warn(`Ledger: '{Key}' on '{self.Options.Name}' {Why}, so every server reads it from the datastore on every tick. keep a followed key small`)
+	Report.Say(`Ledger: '{Key}' on '{self.Options.Name}' {Why}, so every server reads it from the datastore on every tick. keep a followed key small`)
 end
 
 function Store.Refilled(self: Store, Copy: Copy, Now: number, Source: Source, Minted: boolean?): (any?, Reason?)
@@ -228,7 +229,7 @@ function Store.Copied(self: Store, Copy: Copy, Now: number, Force: boolean, Sour
 		if Floor ~= nil and Floor > Known then
 			if not Copy.Behind then
 				Copy.Behind = true
-				warn(`Ledger: could not read the copy of '{Source.Key}', a newer server wrote it and this one cannot read that yet. finish the deploy`)
+				Report.Say(`Ledger: could not read the copy of '{Source.Key}', a newer server wrote it and this one cannot read that yet. finish the deploy`)
 			end
 			return nil, BEHIND
 		end

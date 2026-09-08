@@ -48,6 +48,7 @@ local Registry = require("./Registry")
 local Store = require("./Class")
 local Types = require("./Types")
 local Write = require("./Api/Write")
+local Report = require("../Core/Report")
 
 require("./Shared")
 require("./Api/Read")
@@ -120,7 +121,7 @@ local function Probed(Name: string, Reducer: Shapes.Reducer<any>, Initial: any)
 	if Apply(Reducer, Initial, { Id = "probe", Kind = PROBE_KIND }) == nil then
 		return
 	end
-	warn(`Ledger: the reducer for '{Name}' gave back a state for a kind it does not know. give back nil for a kind you do not handle`)
+	Report.Say(`Ledger: the reducer for '{Name}' gave back a state for a kind it does not know. give back nil for a kind you do not handle`)
 end
 
 local function Batching(Every: number?): Types.Batched?
@@ -161,7 +162,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	local Faked = Config.Hook == nil and (Asked == true or type(Asked) == "table")
 	local Hook = Config.Hook or (if Asked then Registry.Mock(if type(Asked) == "table" then Asked else nil) else Registry.Defaults.Hook)
 	if Faked then
-		warn(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
+		Report.Say(`Ledger: store '{Config.Name}' is on a fake datastore, nothing it saves outlives this server`)
 	end
 
 	local Keys = (Config.Keys or "Player") :: Shapes.KeysMode
@@ -171,7 +172,7 @@ local function New<D>(Config: Config<D>): Api.Store<D>
 	local Holds = if Cached then MemoryStoreWrapper.New(Bookings.MAP, Turn, Hook) else nil
 	local Copier = if Cached then MemoryStoreWrapper.New(Follows.MAP, Turn, Hook) else nil
 	if Tallies == nil then
-		warn(
+		Report.Say(
 			`Ledger: store '{Config.Name}' is on a hook with no MemoryStore, so every total is read from its shards, a followed key is read from the datastore on every tick, transactions on one key race rather than queue, and nothing can be reserved`
 		)
 	end
@@ -250,7 +251,7 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 
 	local Ok, Took = pcall(Answer, Player, Why)
 	if not Ok then
-		warn(`Ledger: OnLoadFailed threw for {Player.Name}, so they get kicked as if it had said no: {Took}`)
+		Report.Say(`Ledger: OnLoadFailed threw for {Player.Name}, so they get kicked as if it had said no: {Took}`)
 		return false
 	end
 	if Took ~= true then
@@ -258,7 +259,7 @@ function Store.Handled(self: Store, Player: Player, Why: Reason): boolean
 	end
 
 	if Player.Parent ~= nil and Players:GetPlayerByUserId(Player.UserId) ~= nil then
-		warn(`Ledger: OnLoadFailed said it handled {Player.Name} after a '{Why}' load but they are still in the server with no data. send them somewhere or kick them`)
+		Report.Say(`Ledger: OnLoadFailed said it handled {Player.Name} after a '{Why}' load but they are still in the server with no data. send them somewhere or kick them`)
 	end
 	return true
 end
@@ -294,7 +295,7 @@ function Store.Autosave(self: Store, UserId: number)
 	if Ok or Active.Released then
 		return
 	end
-	warn(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)
+	Report.Say(`Ledger: the autosave for {UserId} keeps failing, the datastore is probably down`)
 end
 
 function Store.Save(self: Store, Active: any): Future<boolean, Reason?>
@@ -345,11 +346,11 @@ function Store.Load(self: Store, Player: Player)
 	local UserId = Player.UserId
 
 	if self.Loaded[UserId] ~= nil then
-		warn(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
+		Report.Say(`Ledger: {Player.Name} already has a live session, ignoring this second Load`)
 		return
 	end
 	if self.Loads[UserId] == "Loading" then
-		warn(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
+		Report.Say(`Ledger: {Player.Name} is already loading, ignoring this second Load`)
 		return
 	end
 
@@ -371,7 +372,7 @@ function Store.Load(self: Store, Player: Player)
 	end
 
 	if self.Loaded[UserId] ~= nil then
-		warn(`Ledger: {Player.Name} was loaded twice concurrently, dropping the duplicate session`)
+		Report.Say(`Ledger: {Player.Name} was loaded twice concurrently, dropping the duplicate session`)
 		Active:Release()
 		return
 	end

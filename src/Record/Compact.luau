@@ -35,6 +35,7 @@ local Schema = require("./Schema")
 local TxStamp = require("./TxStamp")
 local Apply = require("./Apply")
 local Types = require("./Types")
+local Report = require("../Core/Report")
 
 type Op = Shapes.Op
 type Record = Shapes.Record<any>
@@ -174,13 +175,13 @@ local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
 
 	local Snapshot, Taken, Blocking = Absorbable(Record, Format)
 	if Taken == 0 and #Record.Ops > 0 then
-		warn(`Ledger: key '{Key}' cannot be compacted, its oldest op is a '{Blocking}' this build does not apply. a build that does apply it compacts the key`)
+		Report.Say(`Ledger: key '{Key}' cannot be compacted, its oldest op is a '{Blocking}' this build does not apply. a build that does apply it compacts the key`)
 		return nil
 	end
 
 	local Fits, Where = Storable.Structure(Snapshot)
 	if not Fits then
-		warn(
+		Report.Say(
 			`Ledger: key '{Key}' cannot be compacted, your reducer built state a datastore cannot hold, {Where}. the log is left alone rather than lose that field. no gaps in arrays, no mixing array and string keys, no nan`
 		)
 		return nil
@@ -188,7 +189,7 @@ local function Packed(Key: string, Record: Record, Format: Schema<any>): Record?
 
 	local Held: { Op } = table.move(Record.Ops, Taken + 1, #Record.Ops, 1, {})
 	if Blocking ~= nil then
-		warn(`Ledger: key '{Key}' kept {#Held} op(s) through compaction, from a '{Blocking}' this build does not apply. they wait for a build that does rather than being dropped`)
+		Report.Say(`Ledger: key '{Key}' kept {#Held} op(s) through compaction, from a '{Blocking}' this build does not apply. they wait for a build that does rather than being dropped`)
 	end
 
 	local Seen = table.clone(Record.Seen)
