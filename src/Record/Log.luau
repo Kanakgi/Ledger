@@ -9,7 +9,9 @@
 	An append adds only the ops the record does not already have, so running one twice applies once.
 	Every write first asks whether this build may write the record at all. A read and a write that
 	changed the record hand back the stamp the datastore put on it, so a copy of the record can be
-	ordered against another without comparing two servers' clocks.
+	ordered against another without comparing two servers' clocks. The stamp is the datastore's own
+	milliseconds, kept as they come rather than turned into seconds, since ordering two of them is
+	the only thing it is ever for and the finer the better. Nothing compares one to a clock.
 
 	Return type: A table with New, Verdict, Entombed and NotEntombed.
 	Example usage:

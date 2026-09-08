@@ -141,7 +141,7 @@ local function Gone(Walk: Walk, Txid: string): (boolean, boolean)
 
 	if type(Value) == "table" then
 		local Held = Value :: Types.Marker
-		local Updated = if Info then (Info :: DataStoreKeyInfo).UpdatedTime / 1000 else 0
+		local Updated = Marker.TouchedAt(Info)
 		local Settled = Held.Dead == true or Held.Status == Transactions.ABORTED
 		if Walk.Now - Updated < (if Settled then Walk.Grace else Walk.Older) then
 			return false, false
